@@ -1,0 +1,7 @@
+node_modules/
+release/
+dist/
+*.exe
+.env
+*.pfx
+*.p12
