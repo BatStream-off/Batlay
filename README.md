@@ -288,7 +288,7 @@ et installez l'application.
 
 ## 📄 Licence
 
-À définir.
+Licence : Tous droits réservés.
 
 ---
 
