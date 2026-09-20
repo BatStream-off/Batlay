@@ -1,0 +1,82 @@
+{
+  "name": "batlay",
+  "productName": "Batlay",
+  "version": "0.1.0",
+  "description": "Batlay - Application desktop d'overlay musical pour le streaming (OBS)",
+  "author": "Adil",
+  "main": "dist-electron/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"npm:dev:overlay-server\" \"npm:dev:electron\"",
+    "predev": "npm run build:electron",
+    "dev:electron": "wait-on tcp:5173 && cross-env NODE_ENV=development electron .",
+    "dev:overlay-server": "echo \"Le serveur d'overlay est démarré automatiquement par le process principal Electron (voir electron/services/overlay-server.ts)\"",
+    "build": "tsc -b && vite build && npm run build:electron",
+    "build:electron": "tsc -p electron/tsconfig.json && esbuild electron/preload/index.ts --bundle --format=cjs --platform=node --external:electron --outfile=dist-electron/preload/index.js",
+    "dist": "npm run build && electron-builder --win",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint . --ext ts,tsx"
+  },
+  "dependencies": {
+    "zustand": "^4.5.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.0",
+    "express": "^4.19.2",
+    "ws": "^8.18.0",
+    "electron-store": "^9.0.0",
+    "nanoid": "^5.0.7",
+    "lucide-react": "^0.383.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.9",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/ws": "^8.5.10",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.19",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^31.2.1",
+    "electron-builder": "^24.13.3",
+    "esbuild": "^0.21.5",
+    "postcss": "^8.4.39",
+    "tailwindcss": "^3.4.6",
+    "typescript": "^5.5.3",
+    "vite": "^5.3.3",
+    "vitest": "^1.6.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.adil.batlay",
+    "productName": "Batlay",
+    "copyright": "Copyright (c) Adil",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "artifactName": "Batlay Setup.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Batlay"
+    }
+  }
+}

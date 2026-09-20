@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: "Inter", system-ui, sans-serif;
+  }
+  :root {
+    /* Couleur des boutons par défaut (violet Batlay). Surchargée en ligne
+       par src/theme/accent.ts quand l'utilisateur choisit sa propre couleur
+       dans Settings > Apparence ; ces valeurs restent le repli par défaut. */
+    --signal-600: 124 77 255;
+    --signal-500: 155 107 255;
+    --signal-400: 182 140 255;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    /* Variable dédiée : base-700 est trop proche du fond en thème clair. */
+    background-color: rgb(var(--scrollbar));
+    @apply rounded-full;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+}
