@@ -1,12 +1,25 @@
-import { app, BrowserWindow, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { OverlayServer } from "../services/overlay-server.js";
-import { store } from "../services/config-store.js";
+import { store, type BatlayConfigSchema } from "../services/config-store.js";
 import * as spotifyAuth from "../services/spotify-auth.js";
 import * as systemMedia from "../services/system-media.js";
 import { lookupArtwork } from "../services/artwork-lookup.js";
 import type { PlaybackState } from "../shared/types.js";
+import {
+  applyLaunchOnStartup,
+  attachWindowReveal,
+  focusExistingWindow,
+  getInitialWindowState,
+} from "../services/window-lifecycle.js";
+import {
+  normalizeThemePreference,
+  syncNativeTheme,
+  WINDOW_BACKGROUND,
+  type ResolvedTheme,
+  type ThemePreference,
+} from "../shared/theme.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV === "development";
@@ -14,14 +27,47 @@ const isDev = process.env.NODE_ENV === "development";
 let mainWindow: BrowserWindow | null = null;
 let overlayServer: OverlayServer | null = null;
 
+interface ThemeState {
+  preference: ThemePreference;
+  resolved: ResolvedTheme;
+}
+
+/** Thème courant, tel que nativeTheme le résout (suit Windows quand le réglage est « system »). */
+function getThemeState(): ThemeState {
+  return {
+    preference: normalizeThemePreference(store.get("settings").theme),
+    resolved: nativeTheme.shouldUseDarkColors ? "dark" : "light",
+  };
+}
+
+/** Fond natif + notification du renderer. Ne touche PAS à themeSource (évite toute boucle avec « updated »). */
+function pushThemeState(): void {
+  const state = getThemeState();
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.setBackgroundColor(WINDOW_BACKGROUND[state.resolved]);
+  mainWindow.webContents.send("theme:changed", state);
+}
+
+/** Aligne nativeTheme sur le réglage enregistré, puis diffuse le résultat. */
+function applyThemeFromSettings(): void {
+  syncNativeTheme(nativeTheme, normalizeThemePreference(store.get("settings").theme));
+  pushThemeState();
+}
+
 async function createWindow(): Promise<void> {
+  const initialWindowState = getInitialWindowState(store.get("settings"));
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 1024,
     minHeight: 700,
-    backgroundColor: "#0A0A0F",
+    // Fond natif = fond de l'app dans le thème actif : aucun flash entre
+    // l'ouverture de la fenêtre et le premier rendu du renderer.
+    backgroundColor: WINDOW_BACKGROUND[getThemeState().resolved],
     title: "Batlay",
+    // La fenêtre est créée masquée pour éviter un flash avant le premier
+    // rendu, mais attachWindowReveal (ci-dessous) l'affiche TOUJOURS.
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
@@ -53,21 +99,31 @@ async function createWindow(): Promise<void> {
     }
   });
 
-  if (isDev) {
-    await mainWindow.loadURL("http://localhost:5173/index.html");
-    mainWindow.webContents.openDevTools({ mode: "detach" });
-  } else {
-    await mainWindow.loadFile(path.join(__dirname, "../../dist/index.html"));
-  }
-
-  mainWindow.once("ready-to-show", () => {
-    const startMinimized = store.get("settings").startMinimized;
-    if (!startMinimized) mainWindow?.show();
-  });
-
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+
+  // AVANT le chargement : `ready-to-show` peut partir avant la fin de
+  // `loadFile`, et un écouteur posé après l'`await` ratait l'événement (la
+  // fenêtre restait alors invisible). Avec « Start minimized » elle n'était
+  // de toute façon jamais affichée : voir getInitialWindowState.
+  attachWindowReveal(mainWindow, {
+    state: initialWindowState,
+    log: (message) => console.log(`[Batlay] ${message}`),
+  });
+
+  try {
+    if (isDev) {
+      await mainWindow.loadURL("http://localhost:5173/index.html");
+      mainWindow.webContents.openDevTools({ mode: "detach" });
+    } else {
+      await mainWindow.loadFile(path.join(__dirname, "../../dist/index.html"));
+    }
+  } catch (err) {
+    // did-fail-load affiche déjà la fenêtre (attachWindowReveal) ; on ne
+    // laisse pas la promesse rejetée sans traitement dans whenReady().
+    console.error("[Batlay] Échec du chargement de la fenêtre principale :", err);
+  }
 }
 
 async function startOverlayServer(): Promise<void> {
@@ -93,9 +149,23 @@ async function startOverlayServer(): Promise<void> {
 function registerIpcHandlers(): void {
   // --- Config / Settings ---
   ipcMain.handle("config:get", () => store.store);
-  ipcMain.handle("config:set-settings", (_e, settings) => {
-    store.set("settings", { ...store.get("settings"), ...settings });
+  ipcMain.handle("config:set-settings", (_e, patch: Partial<BatlayConfigSchema["settings"]>) => {
+    const previous = store.get("settings");
+    const next = { ...previous, ...patch };
+    // Le renderer est de confiance limitée : une valeur de thème inconnue ne
+    // doit jamais être persistée (elle casserait la résolution au démarrage).
+    next.theme = normalizeThemePreference(next.theme);
+    store.set("settings", next);
+
+    if (next.theme !== previous.theme) applyThemeFromSettings();
+    if (next.launchOnStartup !== previous.launchOnStartup) applyLaunchOnStartup(app, next.launchOnStartup);
     return store.get("settings");
+  });
+
+  // Lecture SYNCHRONE (sendSync côté preload) : le renderer applique le thème
+  // avant son premier rendu. Renvoie le thème déjà résolu par nativeTheme.
+  ipcMain.on("theme:get-initial", (event) => {
+    event.returnValue = getThemeState();
   });
   ipcMain.handle("config:get-overlays", () => store.get("overlays"));
   ipcMain.handle("config:save-overlays", (_e, overlays) => {
@@ -156,15 +226,41 @@ function registerIpcHandlers(): void {
   );
 }
 
-app.whenReady().then(async () => {
-  registerIpcHandlers();
-  await startOverlayServer();
-  await createWindow();
+// Instance unique, demandée AVANT whenReady. Sans elle, un second lancement
+// démarrait un second processus : il n'obtenait pas le port de l'overlay
+// (EADDRINUSE, port 3000 déjà pris par le premier) et, avec « Start
+// minimized », l'utilisateur relançait Batlay sans jamais voir de fenêtre.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+if (!hasSingleInstanceLock) {
+  // Une instance tourne déjà : elle reçoit `second-instance` et se ramène au
+  // premier plan. Ce processus-ci n'a rien d'autre à faire que se terminer.
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    focusExistingWindow(mainWindow);
   });
-});
+
+  app.whenReady().then(async () => {
+    registerIpcHandlers();
+
+    // Réglage « Launch on startup » : enregistré par l'UI, mais jamais
+    // appliqué au système avant ce correctif. Version packagée uniquement.
+    applyLaunchOnStartup(app, store.get("settings").launchOnStartup);
+
+    // Thème : nativeTheme AVANT la création de la fenêtre (fond natif correct),
+    // puis suivi des changements de Windows pour le réglage « system ».
+    applyThemeFromSettings();
+    nativeTheme.on("updated", pushThemeState);
+
+    await startOverlayServer();
+    await createWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

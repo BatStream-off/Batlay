@@ -6,11 +6,29 @@
   html {
     font-family: "Inter", system-ui, sans-serif;
   }
+  :root {
+    /* Couleur des boutons par défaut (violet Batlay). Surchargée en ligne
+       par src/theme/accent.ts quand l'utilisateur choisit sa propre couleur
+       dans Settings > Apparence ; ces valeurs restent le repli par défaut. */
+    --signal-600: 124 77 255;
+    --signal-500: 155 107 255;
+    --signal-400: 182 140 255;
+  }
+  /* Navigation au clavier : un anneau visible sur les boutons et interrupteurs.
+     Les champs de saisie gardent leur propre style (bordure au focus). */
+  button:focus-visible,
+  [role="switch"]:focus-visible,
+  a:focus-visible {
+    outline: 2px solid rgb(var(--signal-500));
+    outline-offset: 2px;
+  }
   ::-webkit-scrollbar {
     width: 8px;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-base-700 rounded-full;
+    /* Variable dédiée : base-700 est trop proche du fond en thème clair. */
+    background-color: rgb(var(--scrollbar));
+    @apply rounded-full;
   }
   ::-webkit-scrollbar-track {
     @apply bg-transparent;

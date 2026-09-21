@@ -3,13 +3,19 @@ import { nanoid } from "nanoid";
 import type { OverlayConfig, PresetId } from "@/types/overlay";
 import { getPreset } from "@/presets";
 
+export interface CreateOptions {
+  /** Taille du canvas ; par défaut celle du preset. */
+  canvasWidth?: number;
+  canvasHeight?: number;
+}
+
 interface OverlayStoreState {
   overlays: OverlayConfig[];
   activeOverlayId: string | null;
   loaded: boolean;
 
   load: () => Promise<void>;
-  create: (presetId: PresetId, name?: string) => Promise<OverlayConfig>;
+  create: (presetId: PresetId, name?: string, options?: CreateOptions) => Promise<OverlayConfig>;
   update: (overlay: OverlayConfig) => Promise<void>;
   remove: (id: string) => Promise<void>;
   duplicate: (id: string) => Promise<void>;
@@ -35,10 +41,15 @@ export const useOverlayStore = create<OverlayStoreState>((set, get) => ({
     set({ overlays: (overlays as OverlayConfig[]) ?? [], activeOverlayId, loaded: true });
   },
 
-  create: async (presetId, name) => {
+  create: async (presetId, name, options = {}) => {
     const preset = getPreset(presetId);
     const overlay: OverlayConfig = {
       ...preset,
+      theme: {
+        ...preset.theme,
+        canvasWidth: options.canvasWidth ?? preset.theme.canvasWidth,
+        canvasHeight: options.canvasHeight ?? preset.theme.canvasHeight,
+      },
       id: nanoid(10),
       name: name ?? presetLabel(presetId),
       createdAt: Date.now(),
@@ -73,7 +84,8 @@ export const useOverlayStore = create<OverlayStoreState>((set, get) => ({
     const original = get().overlays.find((o) => o.id === id);
     if (!original) return;
     const copy: OverlayConfig = {
-      ...original,
+      // Copie profonde : la copie ne doit partager aucun objet avec l'original.
+      ...structuredClone(original),
       id: nanoid(10),
       name: `${original.name} (copie)`,
       createdAt: Date.now(),

@@ -1,6 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useToastStore } from "@/stores/useToastStore";
+import { ColorField } from "@/components/editor/fields";
+import { PageHeader, StatusPill } from "@/components/ui";
+import { DEFAULT_ACCENT_HEX } from "@/theme/accent";
+import { validatePort } from "@/utils/ui-helpers";
+import type { ThemePreference } from "../../electron/shared/theme";
+
+const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: "dark", label: "Sombre" },
+  { value: "light", label: "Clair" },
+  { value: "system", label: "Système" },
+];
 
 export function Settings() {
   const { settings, overlayServerRunning, load, update } = useSettingsStore((s) => ({
@@ -11,78 +22,180 @@ export function Settings() {
   }));
   const push = useToastStore((s) => s.push);
 
+  // Le port se saisit dans un texte local et n'est enregistré qu'à la validation
+  // (Entrée / sortie du champ) : avant, chaque frappe était enregistrée — taper
+  // « 8945 » sauvegardait successivement 8, 89, 894 puis 8945, avec une
+  // notification à chaque touche.
+  const savedPort = settings?.overlayServerPort;
+  const [portText, setPortText] = useState("");
+  const [portError, setPortError] = useState<string | null>(null);
+
   useEffect(() => {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (savedPort !== undefined) setPortText(String(savedPort));
+  }, [savedPort]);
+
   if (!settings) return null;
+
+  async function commitPort() {
+    const result = validatePort(portText);
+    if (!result.ok) {
+      setPortError(result.reason);
+      return;
+    }
+    setPortError(null);
+    if (result.port === savedPort) return;
+    await update({ overlayServerPort: result.port });
+    push("Port enregistré : redémarrez Batlay pour l'appliquer.", "info");
+  }
 
   return (
     <div className="mx-auto max-w-2xl px-8 py-10">
-      <h1 className="font-display text-2xl font-semibold text-white">Settings</h1>
+      <PageHeader title="Paramètres" />
 
-      <section className="mt-6 rounded-xl2 border border-base-800 bg-base-900 p-6">
-        <h2 className="mb-4 text-xs font-medium uppercase tracking-wide text-muted">General</h2>
+      <section className="mt-6 rounded-xl2 border border-line bg-base-900 p-6">
+        <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Général</h2>
         <Toggle
-          label="Launch on startup"
+          label="Lancer au démarrage de Windows"
+          hint="Version installée uniquement."
           checked={settings.launchOnStartup}
           onChange={(v) => update({ launchOnStartup: v })}
         />
         <Toggle
-          label="Start minimized"
+          label="Démarrer réduit"
+          hint="Batlay s'ouvre réduit dans la barre des tâches : pratique pour l'ouvrir avec Windows sans qu'il gêne."
           checked={settings.startMinimized}
           onChange={(v) => update({ startMinimized: v })}
         />
       </section>
 
-      <section className="mt-4 rounded-xl2 border border-base-800 bg-base-900 p-6">
-        <h2 className="mb-4 text-xs font-medium uppercase tracking-wide text-muted">Overlay Server</h2>
-        <div className="flex items-center justify-between text-sm text-white">
-          <span>Status</span>
-          <span className={overlayServerRunning ? "text-live" : "text-red-400"}>
-            {overlayServerRunning ? "● Online" : "● Offline"}
-          </span>
+      <section className="mt-4 rounded-xl2 border border-line bg-base-900 p-6">
+        <h2 className="mb-4 text-xs font-medium uppercase tracking-wide text-muted">Apparence</h2>
+        <div className="flex items-center justify-between text-sm text-fg">
+          <span id="theme-label">Thème</span>
+          <div
+            role="radiogroup"
+            aria-labelledby="theme-label"
+            className="flex gap-1 rounded-lg border border-base-700 bg-base-800 p-0.5"
+          >
+            {THEME_OPTIONS.map((option) => {
+              const selected = settings.theme === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => update({ theme: option.value })}
+                  className={`rounded-md px-3 py-1 text-xs transition ${
+                    selected ? "bg-signal-600 text-white" : "text-muted hover:text-fg"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
-        <label className="mt-3 flex items-center justify-between text-sm text-white">
+        <p className="mt-2 text-xs text-muted">« Système » suit le thème clair/sombre de Windows.</p>
+
+        <div className="mt-4 border-t border-line pt-4">
+          <ColorField
+            label="Couleur des boutons"
+            value={settings.accentColor ?? DEFAULT_ACCENT_HEX}
+            onChange={(accentColor) => update({ accentColor })}
+          />
+          {settings.accentColor && (
+            <button
+              type="button"
+              onClick={() => update({ accentColor: null })}
+              className="mt-2 text-xs text-muted hover:text-fg"
+            >
+              Réinitialiser la couleur par défaut
+            </button>
+          )}
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-xl2 border border-line bg-base-900 p-6">
+        <h2 className="mb-4 text-xs font-medium uppercase tracking-wide text-muted">Serveur d'overlay</h2>
+        <div className="flex items-center justify-between text-sm text-fg">
+          <span>État</span>
+          <StatusPill tone={overlayServerRunning ? "ok" : "warn"}>{overlayServerRunning ? "● En ligne" : "● Hors ligne"}</StatusPill>
+        </div>
+        <label className="mt-3 flex items-center justify-between text-sm text-fg">
           <span>Port</span>
           <input
-            type="number"
-            value={settings.overlayServerPort}
+            type="text"
+            inputMode="numeric"
+            value={portText}
             onChange={(e) => {
-              update({ overlayServerPort: Number(e.target.value) });
-              push("Redémarrez Batlay pour appliquer le nouveau port.", "info");
+              setPortText(e.target.value);
+              setPortError(null);
             }}
+            onBlur={() => void commitPort()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+            }}
+            aria-invalid={portError !== null}
             className="w-24 rounded-md border border-base-700 bg-base-800 px-2 py-1 text-right text-sm outline-none focus:border-signal-500"
           />
         </label>
-        <p className="mt-2 text-xs text-muted">
-          Un changement de port nécessite de redémarrer Batlay pour prendre effet.
-        </p>
+        {portError ? (
+          <p role="alert" className="mt-2 text-xs text-danger">{portError}</p>
+        ) : (
+          <p className="mt-2 text-xs text-muted">
+            Un changement de port nécessite de redémarrer Batlay, et les URL déjà collées dans OBS devront être mises à jour.
+          </p>
+        )}
       </section>
 
-      <section className="mt-4 rounded-xl2 border border-base-800 bg-base-900 p-6">
-        <h2 className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">About</h2>
-        <p className="text-sm text-white">Batlay</p>
+      <section className="mt-4 rounded-xl2 border border-line bg-base-900 p-6">
+        <h2 className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">À propos</h2>
+        <p className="text-sm text-fg">Batlay</p>
         <p className="text-xs text-muted">Version 0.1.0</p>
+        <p className="text-xs text-muted">Créateur : Adilbl</p>
       </section>
     </div>
   );
 }
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
   return (
-    <label className="flex items-center justify-between py-2 text-sm text-white">
-      {label}
+    <div className="flex items-center justify-between gap-4 py-2.5">
+      <div className="min-w-0">
+        <p className="text-sm text-fg">{label}</p>
+        {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
+      </div>
       <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
         onClick={() => onChange(!checked)}
-        className={`h-5 w-9 rounded-full transition ${checked ? "bg-signal-600" : "bg-base-700"}`}
+        className={`inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition ${
+          checked ? "bg-signal-600" : "bg-base-700"
+        }`}
       >
         <span
-          className={`block h-4 w-4 translate-y-0.5 rounded-full bg-white transition ${
-            checked ? "translate-x-4" : "translate-x-0.5"
+          className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${
+            checked ? "translate-x-5" : "translate-x-0"
           }`}
         />
       </button>
-    </label>
+    </div>
   );
 }

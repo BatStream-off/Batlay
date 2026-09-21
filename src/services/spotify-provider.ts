@@ -1,7 +1,7 @@
 import type { MusicProvider } from "./music-provider";
 import type { Track, PlaybackState } from "@/types/track";
-
-const POLL_INTERVAL_MS = 2000;
+import { spotifyItemToTrack } from "./spotify-track";
+import { computeNextPollDelay, POLL_TUNING } from "@/utils/poll-schedule";
 
 /**
  * Le renderer ne détient jamais de token Spotify : toute l'authentification
@@ -16,10 +16,17 @@ export class SpotifyProvider implements MusicProvider {
   readonly id = "spotify";
 
   private connected = false;
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private listeners = new Set<(state: PlaybackState) => void>();
   private errorListeners = new Set<(message: string) => void>();
   private lastTrackId: string | null = null;
+  private lastIsPlaying: boolean | null = null;
+  /** Dernier état émis : sert à décider de la cadence du prochain relevé. */
+  private lastState: PlaybackState | null = null;
+  private fastUntil = 0;
+  private consecutiveErrors = 0;
+  /** Invalide les relevés en vol après un disconnect() : ils ne doivent plus rien émettre. */
+  private generation = 0;
 
   async connect(): Promise<void> {
     const configured = await window.batlay.spotify.isConfigured();
@@ -36,7 +43,12 @@ export class SpotifyProvider implements MusicProvider {
   async disconnect(): Promise<void> {
     await window.batlay.spotify.disconnect();
     this.connected = false;
+    this.generation++;
     this.stopPolling();
+    this.lastState = null;
+    this.lastTrackId = null;
+    this.lastIsPlaying = null;
+    this.consecutiveErrors = 0;
   }
 
   isConnected(): boolean {
@@ -56,24 +68,25 @@ export class SpotifyProvider implements MusicProvider {
   }
 
   async getCurrentTrack(): Promise<Track | null> {
-    if (!this.connected) return null;
-    const data = await window.batlay.spotify.getCurrentlyPlaying();
-    if (!data?.item) return null;
-    return {
-      id: data.item.id,
-      title: data.item.name,
-      artist: data.item.artists.map((a) => a.name).join(", "),
-      album: data.item.album.name,
-      artwork: data.item.album.images[0]?.url,
-      duration: data.item.duration_ms,
-      progress: data.progressMs,
-      isPlaying: data.isPlaying,
-    };
+    return (await this.getPlaybackState()).track;
   }
 
   async getPlaybackState(): Promise<PlaybackState> {
-    const track = await this.getCurrentTrack();
-    return { track, isPlaying: track?.isPlaying ?? false, updatedAt: Date.now() };
+    if (!this.connected) return { track: null, isPlaying: false, updatedAt: Date.now() };
+    const data = await window.batlay.spotify.getCurrentlyPlaying();
+    if (!data?.item) return { track: null, isPlaying: false, updatedAt: data?.sampledAt ?? Date.now() };
+
+    // TOUS les artistes sont conservés : voir spotifyItemToTrack.
+    const track = spotifyItemToTrack(data.item, { progressMs: data.progressMs, isPlaying: data.isPlaying });
+    return {
+      track,
+      isPlaying: track.isPlaying,
+      // Instant de la MESURE (milieu de l'aller-retour HTTP, calculé dans le
+      // process principal), pas celui où la réponse a fini d'être traitée :
+      // c'est ce qui permet à l'horloge de progression de compenser la
+      // latence au lieu de la subir.
+      updatedAt: data.sampledAt ?? Date.now(),
+    };
   }
 
   onStateChange(listener: (state: PlaybackState) => void): () => void {
@@ -91,26 +104,55 @@ export class SpotifyProvider implements MusicProvider {
 
   private startPolling(): void {
     this.stopPolling();
-    // Premier appel immédiat : sans ça, setInterval attend déjà
-    // POLL_INTERVAL_MS avant la toute première mise à jour, ce qui donne
-    // l'impression que rien n'est détecté juste après la connexion.
-    void this.pollOnce();
-    this.pollTimer = setInterval(() => void this.pollOnce(), POLL_INTERVAL_MS);
+    // Premier relevé immédiat : sinon rien n'est détecté juste après la connexion.
+    void this.pollOnce().finally(() => this.scheduleNextPoll());
+  }
+
+  /**
+   * setTimeout ré-armé plutôt que setInterval : la cadence change d'un
+   * relevé à l'autre, et on n'empile jamais deux requêtes si l'API met plus
+   * longtemps que prévu à répondre.
+   */
+  private scheduleNextPoll(): void {
+    if (!this.connected) return;
+    const delay = computeNextPollDelay({
+      nowEpochMs: Date.now(),
+      state: this.lastState,
+      fastUntilEpochMs: this.fastUntil,
+      consecutiveErrors: this.consecutiveErrors,
+    });
+    this.pollTimer = setTimeout(() => {
+      void this.pollOnce().finally(() => this.scheduleNextPoll());
+    }, delay);
   }
 
   private async pollOnce(): Promise<void> {
+    const generation = this.generation;
     try {
       const state = await this.getPlaybackState();
+      if (generation !== this.generation) return; // déconnecté pendant la requête
+
+      this.consecutiveErrors = 0;
       const currentTrackId = state.track?.id ?? null;
+      const currentIsPlaying = state.track?.isPlaying ?? false;
+
       if (currentTrackId !== this.lastTrackId) {
         console.log(`[Batlay] Changement de morceau : ${this.lastTrackId ?? "—"} → ${currentTrackId ?? "—"}`);
         this.lastTrackId = currentTrackId;
+        this.fastUntil = Date.now() + POLL_TUNING.burstMs;
+      } else if (this.lastIsPlaying !== null && currentIsPlaying !== this.lastIsPlaying) {
+        this.fastUntil = Date.now() + POLL_TUNING.burstMs; // play/pause : un autre geste suit souvent
       }
+      this.lastIsPlaying = currentIsPlaying;
+      this.lastState = state;
       this.emit(state);
     } catch (err) {
+      if (generation !== this.generation) return;
       // Token expiré, compte non ajouté à l'allowlist du dashboard Spotify,
-      // API indisponible, etc. — remonté au store pour affichage à
-      // l'utilisateur plutôt que silencieusement avalé.
+      // limite de débit (429), API indisponible... — remonté au store pour
+      // affichage plutôt que silencieusement avalé. Le recul exponentiel de
+      // computeNextPollDelay évite de marteler l'API pendant l'incident.
+      this.consecutiveErrors++;
       const message = (err as Error).message || "Erreur de communication avec Spotify.";
       console.error("[Batlay] Erreur de polling Spotify:", err);
       this.errorListeners.forEach((l) => l(message));
@@ -118,7 +160,7 @@ export class SpotifyProvider implements MusicProvider {
   }
 
   private stopPolling(): void {
-    if (this.pollTimer) clearInterval(this.pollTimer);
+    if (this.pollTimer) clearTimeout(this.pollTimer);
     this.pollTimer = null;
   }
 

@@ -27,16 +27,51 @@ const execFileAsync = promisify(execFile);
 
 export type PlaybackStatus = "playing" | "paused" | "stopped" | "unknown";
 
+/**
+ * ⚠️ ENCODAGE — cause racine des "�" à la place de é, è, à, ç...
+ *
+ * `powershell.exe` écrit sur stdout avec [Console]::OutputEncoding, qui vaut
+ * par défaut la page de code OEM de Windows (850 en France, 437 aux USA...),
+ * PAS de l'UTF-8. Node décode stdout en UTF-8 : l'octet 0x82 qui représente
+ * "é" en CP850 n'est pas de l'UTF-8 valide et devient U+FFFD ("�").
+ * Aucun remplacement de texte après coup ne peut récupérer l'information :
+ * elle est perdue dès le décodage.
+ *
+ * Correctif : PowerShell encode lui-même son JSON en UTF-8 puis en Base64
+ * (alphabet ASCII pur, insensible à toute page de code), et Node décode
+ * les octets en UTF-8 lui-même (voir decodePowerShellOutput).
+ */
+
 export interface SystemNowPlaying {
   title: string;
   artist: string;
+  /**
+   * `AlbumArtist` tel que l'app le déclare à Windows. DIAGNOSTIC UNIQUEMENT :
+   * jamais affiché ni utilisé pour construire l'artiste (voir le journal
+   * debug de system-media-provider.ts). Permet de constater, sur une vraie
+   * machine, si un lecteur distingue `Artist` et `AlbumArtist`.
+   */
+  albumArtist: string | null;
   album: string | null;
+  /**
+   * Titre de la FENÊTRE de Spotify Desktop (« Artiste - Titre », « Advertisement »
+   * pendant une pub), lu uniquement quand la source est Spotify ; `null` sinon,
+   * ou si la fenêtre est masquée (Spotify réduit dans la zone de notification).
+   * Sert à recouper SMTC : voir src/utils/spotify-metadata.ts.
+   */
+  windowTitle: string | null;
   /** Identifiant de l'app source côté Windows (ex. "Spotify.exe"). */
   sourceAppId: string | null;
   isPlaying: boolean;
   /** Statut détaillé : permet de distinguer pause et arrêt, pas seulement "ne joue pas". */
   playbackStatus: PlaybackStatus;
+  /**
+   * Position dans le morceau (ms) à l'instant `sampledAtMs`, DÉJÀ extrapolée
+   * depuis LastUpdatedTime (voir resolvePosition).
+   */
   positionMs: number;
+  /** Instant (Date.now()) où Windows a été interrogé : date de validité de positionMs. */
+  sampledAtMs: number;
   durationMs: number;
   /** Data URI (base64) de la pochette, uniquement si demandée via `includeArtwork`. */
   artwork: string | null;
@@ -90,6 +125,13 @@ try {
     return $netTask.Result
   }
 
+  # Sortie : JSON -> octets UTF-8 -> Base64 (ASCII pur). Indépendant de la
+  # page de code de la console : plus aucun "�" possible sur les accents.
+  function Emit($obj) {
+    $json = $obj | ConvertTo-Json -Compress -Depth 4
+    [Console]::Out.Write([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($json)))
+  }
+
   [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media.Control,ContentType=WindowsRuntime] | Out-Null
 
   $manager = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
@@ -101,7 +143,7 @@ try {
       $p = Await ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
       $list += [PSCustomObject]@{ sourceAppId = $s.SourceAppUserModelId; title = $p.Title; artist = $p.Artist }
     }
-    [PSCustomObject]@{ supported = $true; sessions = $list } | ConvertTo-Json -Compress -Depth 4
+    Emit ([PSCustomObject]@{ supported = $true; sessions = $list })
     exit 0
   }
 
@@ -121,13 +163,41 @@ try {
   }
 
   if (-not $session) {
-    [PSCustomObject]@{ supported = $true; session = $null; preferredMissing = $preferredMissing } | ConvertTo-Json -Compress
+    Emit ([PSCustomObject]@{ supported = $true; session = $null; preferredMissing = $preferredMissing })
     exit 0
   }
 
-  $props = Await ($session.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
+  # État de lecture et timeline lus AVANT l'appel asynchrone des métadonnées
+  # (qui prend quelques ms) : la position et son horodatage sont ainsi
+  # mesurés au même instant.
   $playback = $session.GetPlaybackInfo()
   $timeline = $session.GetTimelineProperties()
+  $sampledAtMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+
+  # Timeline.Position est la position au moment de LastUpdatedTime (dernière
+  # mise à jour PAR L'APP), pas la position "en direct" : la plupart des
+  # lecteurs ne la rafraîchissent qu'au play/pause/seek. Lire Position telle
+  # quelle donnait une valeur périmée, corrigée d'un coup (souvent en
+  # arrière) quand l'app finissait par la mettre à jour.
+  $lastUpdatedMs = $null
+  try {
+    $lu = $timeline.LastUpdatedTime
+    if ($lu -and $lu.Year -ge 2000) { $lastUpdatedMs = $lu.ToUnixTimeMilliseconds() }
+  } catch { $lastUpdatedMs = $null }
+
+  $props = Await ($session.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
+
+  # Fenêtre de Spotify : son titre (« Artiste - Titre », « Advertisement » pendant
+  # une pub) est mis à jour tout de suite, alors que SMTC peut rester sur le
+  # morceau précédent. Lu UNIQUEMENT pour Spotify (coût : un Get-Process) ; vide
+  # si la fenêtre est masquée (réduite dans la zone de notification).
+  $windowTitle = $null
+  if ($session.SourceAppUserModelId -match 'spotify') {
+    try {
+      $sp = Get-Process -Name 'Spotify' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle } | Select-Object -First 1
+      if ($sp) { $windowTitle = $sp.MainWindowTitle }
+    } catch { $windowTitle = $null }
+  }
 
   $artworkDataUri = $null
   $artworkError = $null
@@ -176,38 +246,46 @@ try {
     session   = [PSCustomObject]@{
       title         = $props.Title
       artist        = $props.Artist
+      albumArtist   = $props.AlbumArtist
       album         = $props.AlbumTitle
+      windowTitle   = $windowTitle
       sourceAppId   = $session.SourceAppUserModelId
       isPlaying     = ([int]$playback.PlaybackStatus -eq 4)
       playbackStatus = $status
       positionMs    = [math]::Round($timeline.Position.TotalMilliseconds)
+      lastUpdatedMs = $lastUpdatedMs
+      sampledAtMs   = $sampledAtMs
       durationMs    = [math]::Round($timeline.EndTime.TotalMilliseconds)
       artwork       = $artworkDataUri
       hasThumbnail  = $hasThumbnail
       artworkError  = $artworkError
     }
   }
-  $result | ConvertTo-Json -Compress -Depth 4
+  Emit $result
 } catch {
-  [PSCustomObject]@{ supported = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+  Emit ([PSCustomObject]@{ supported = $false; error = $_.Exception.Message })
 }
 `;
 
-interface RawSessionInfo {
+export interface RawSessionInfo {
   title: string;
   artist: string;
+  albumArtist?: string | null;
   album: string | null;
+  windowTitle?: string | null;
   sourceAppId: string | null;
   isPlaying: boolean;
   playbackStatus?: PlaybackStatus;
   positionMs: number;
+  lastUpdatedMs?: number | null;
+  sampledAtMs?: number | null;
   durationMs: number;
   artwork: string | null;
   hasThumbnail: boolean;
   artworkError: string | null;
 }
 
-interface RawPsResult {
+export interface RawPsResult {
   supported: boolean;
   error?: string;
   /** true quand le lecteur choisi manuellement n'est pas (ou plus) actif. */
@@ -227,7 +305,7 @@ export function isPlatformSupported(): boolean {
  * (SourceAppUserModelId listé par listSystemMediaSessions) mais on reste
  * défensif quant à son contenu.
  */
-function buildScript(params: { preferredAppId?: string; includeArtwork?: boolean; listOnly?: boolean }): string {
+export function buildScript(params: { preferredAppId?: string; includeArtwork?: boolean; listOnly?: boolean }): string {
   const json = JSON.stringify({
     preferredAppId: params.preferredAppId ?? "",
     includeArtwork: Boolean(params.includeArtwork),
@@ -236,18 +314,66 @@ function buildScript(params: { preferredAppId?: string; includeArtwork?: boolean
   return `$__params = '${json}' | ConvertFrom-Json\n${PS_SCRIPT}`;
 }
 
-async function runScript(script: string): Promise<RawPsResult> {
-  if (!isPlatformSupported()) {
-    throw new Error(
-      "La lecture système n'est disponible que sur Windows (Global System Media Transport Controls)."
-    );
+/**
+ * Décode la sortie brute de PowerShell en texte JSON.
+ *  - Cas nominal : Base64 (voir Emit dans PS_SCRIPT) -> octets -> UTF-8.
+ *    Tolère un BOM UTF-8 en tête (console en UTF-8 sur certains Windows) et
+ *    tout blanc/retour à la ligne (CRLF final, retour à la ligne de la console) :
+ *    ils n'appartiennent jamais à l'alphabet Base64 et doivent être ignorés.
+ *  - Repli : JSON en clair (ancienne forme de sortie) décodé en UTF-8 strict,
+ *    puis en Windows-1252 si les octets ne sont pas de l'UTF-8 valide, avec
+ *    retrait d'un éventuel BOM. Ne renvoie jamais de "�" créé par un
+ *    mauvais décodage de notre part.
+ */
+export function decodePowerShellOutput(output: Buffer | string): string {
+  let buf = typeof output === "string" ? Buffer.from(output, "utf8") : output;
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) buf = buf.subarray(3);
+
+  // Base64 = ASCII pur : on peut l'inspecter en latin1 sans rien perdre.
+  const compact = buf.toString("latin1").replace(/\s+/g, "");
+  if (compact.length > 0 && compact.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact)) {
+    const decoded = Buffer.from(compact, "base64").toString("utf8").replace(/^\uFEFF/, "").trim();
+    // On n'accepte le résultat que s'il ressemble à notre JSON : un simple mot
+    // ("null", "OK") est aussi du Base64 valide mais n'est pas notre sortie.
+    if (decoded.startsWith("{") || decoded.startsWith("[")) return decoded;
   }
 
-  let stdout: string;
+  let text: string;
   try {
-    const res = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(buf);
+  } catch {
+    text = new TextDecoder("windows-1252").decode(buf);
+  }
+  return text.replace(/^\uFEFF/, "").trim();
+}
+
+/**
+ * Exécuteur de PowerShell (injectable) : `execFile` promisifié en production,
+ * un double dans les tests. Il DOIT renvoyer des octets bruts (`encoding:
+ * "buffer"`) — le décodage est notre affaire, jamais celle de Node.
+ */
+export type PowerShellExec = (
+  file: string,
+  args: string[],
+  options: { timeout: number; windowsHide: boolean; encoding: "buffer"; maxBuffer: number }
+) => Promise<{ stdout: Buffer }>;
+
+const defaultExec: PowerShellExec = (file, args, options) => execFileAsync(file, args, options);
+
+/**
+ * Lance le script et décode sa sortie. Séparé de `runScript` uniquement pour
+ * pouvoir être testé sans Windows : `runScript` reste le point d'entrée unique
+ * de toute exécution PowerShell de l'app.
+ */
+export async function executePowerShell(script: string, exec: PowerShellExec): Promise<RawPsResult> {
+  let stdout: Buffer;
+  try {
+    const res = await exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
       timeout: 5000,
       windowsHide: true,
+      // Octets bruts : le décodage est fait par decodePowerShellOutput, jamais
+      // par Node avec un encodage supposé.
+      encoding: "buffer",
       maxBuffer: 10 * 1024 * 1024, // une pochette encodée en base64 peut dépasser le buffer par défaut de 1 Mo
     });
     stdout = res.stdout;
@@ -258,10 +384,56 @@ async function runScript(script: string): Promise<RawPsResult> {
   }
 
   try {
-    return JSON.parse(stdout.trim());
+    return JSON.parse(decodePowerShellOutput(stdout));
   } catch {
     throw new Error("Réponse inattendue de PowerShell lors de la lecture des contrôles multimédias.");
   }
+}
+
+async function runScript(script: string): Promise<RawPsResult> {
+  if (!isPlatformSupported()) {
+    throw new Error(
+      "La lecture système n'est disponible que sur Windows (Global System Media Transport Controls)."
+    );
+  }
+  return executePowerShell(script, defaultExec);
+}
+
+/** Au-delà de cet écart, LastUpdatedTime est jugé aberrant (valeur par défaut, horloge changée...). */
+const MAX_EXTRAPOLATION_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Position du morceau à l'instant `sampledAtMs`.
+ *
+ * Windows fournit la position telle qu'elle était à `lastUpdatedMs` ; si la
+ * lecture est en cours, on y ajoute le temps écoulé depuis. C'est ce que
+ * fait le Volet multimédia de Windows lui-même. Garde-fous : jamais
+ * d'extrapolation sans durée connue, ni avec un écart négatif/aberrant, ni
+ * au-delà de la durée du morceau.
+ */
+export function resolvePosition(input: {
+  positionMs: number;
+  lastUpdatedMs?: number | null;
+  sampledAtMs?: number | null;
+  durationMs: number;
+  isPlaying: boolean;
+}): number {
+  let position = Number.isFinite(input.positionMs) ? Math.max(0, input.positionMs) : 0;
+  const { lastUpdatedMs, sampledAtMs, durationMs, isPlaying } = input;
+
+  if (
+    isPlaying &&
+    durationMs > 0 &&
+    typeof lastUpdatedMs === "number" &&
+    typeof sampledAtMs === "number" &&
+    Number.isFinite(lastUpdatedMs) &&
+    Number.isFinite(sampledAtMs)
+  ) {
+    const age = sampledAtMs - lastUpdatedMs;
+    if (age >= 0 && age <= Math.min(MAX_EXTRAPOLATION_MS, durationMs)) position += age;
+  }
+
+  return durationMs > 0 ? Math.min(position, durationMs) : position;
 }
 
 /**
@@ -300,18 +472,31 @@ export async function getCurrentSystemMedia(options: GetCurrentOptions = {}): Pr
   if (!parsed.session) return null;
 
   const s = parsed.session;
+  // Windows renvoie parfois une durée aberrante (TimeSpan.MaxValue) pour
+  // les sources en direct/sans durée connue : on la ramène à 0 plutôt
+  // que d'afficher une barre de progression absurde.
+  const durationMs = Number.isFinite(s.durationMs) && s.durationMs < 24 * 60 * 60 * 1000 ? s.durationMs : 0;
+  const isPlaying = Boolean(s.isPlaying);
+  const sampledAtMs = typeof s.sampledAtMs === "number" && Number.isFinite(s.sampledAtMs) ? s.sampledAtMs : Date.now();
+
   return {
     title: s.title || "",
     artist: s.artist || "",
+    albumArtist: s.albumArtist || null,
     album: s.album || null,
+    windowTitle: s.windowTitle || null,
     sourceAppId: s.sourceAppId || null,
-    isPlaying: Boolean(s.isPlaying),
+    isPlaying,
     playbackStatus: s.playbackStatus ?? (s.isPlaying ? "playing" : "paused"),
-    positionMs: Number.isFinite(s.positionMs) ? s.positionMs : 0,
-    // Windows renvoie parfois une durée aberrante (TimeSpan.MaxValue) pour
-    // les sources en direct/sans durée connue : on la ramène à 0 plutôt
-    // que d'afficher une barre de progression absurde.
-    durationMs: Number.isFinite(s.durationMs) && s.durationMs < 24 * 60 * 60 * 1000 ? s.durationMs : 0,
+    positionMs: resolvePosition({
+      positionMs: s.positionMs,
+      lastUpdatedMs: s.lastUpdatedMs,
+      sampledAtMs,
+      durationMs,
+      isPlaying,
+    }),
+    sampledAtMs,
+    durationMs,
     artwork: s.artwork || null,
     hasThumbnail: Boolean(s.hasThumbnail),
     artworkError: s.artworkError || null,

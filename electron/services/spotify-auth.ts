@@ -2,6 +2,11 @@ import { createServer, type Server } from "node:http";
 import { randomBytes, createHash } from "node:crypto";
 import { shell } from "electron";
 import { store, saveRefreshToken, loadRefreshToken, clearSpotifyAuth } from "./config-store.js";
+import {
+  normalizeCurrentlyPlaying,
+  type SpotifyCurrentlyPlaying,
+  type SpotifyCurrentlyPlayingRaw,
+} from "./spotify-response.js";
 
 /**
  * Authentification Spotify via Authorization Code + PKCE (recommandé pour
@@ -229,31 +234,18 @@ export async function restoreSession(): Promise<boolean> {
   }
 }
 
-export interface SpotifyCurrentlyPlaying {
-  isPlaying: boolean;
-  progressMs: number;
-  item: {
-    id: string;
-    name: string;
-    duration_ms: number;
-    artists: { name: string }[];
-    album: { name: string; images: { url: string }[] };
-  } | null;
-}
-
-/** Forme brute renvoyée par l'API Spotify (snake_case) avant normalisation. */
-interface SpotifyCurrentlyPlayingRaw {
-  is_playing: boolean;
-  progress_ms: number | null;
-  item: SpotifyCurrentlyPlaying["item"];
-}
+export type { SpotifyCurrentlyPlaying } from "./spotify-response.js";
 
 /** Appelle GET /me/player/currently-playing avec un access token valide. */
 export async function fetchCurrentlyPlaying(): Promise<SpotifyCurrentlyPlaying | null> {
   const token = await getValidAccessToken();
+  // Horodatage de la requête : sert à situer dans le temps la mesure de
+  // progression faite par Spotify (voir normalizeCurrentlyPlaying).
+  const requestedAt = Date.now();
   const res = await fetch("https://api.spotify.com/v1/me/player/currently-playing", {
     headers: { Authorization: `Bearer ${token}` },
   });
+  const receivedAt = Date.now();
 
   if (res.status === 204) return null; // rien en lecture actuellement
   if (!res.ok) {
@@ -262,17 +254,17 @@ export async function fetchCurrentlyPlaying(): Promise<SpotifyCurrentlyPlaying |
     // on ne voit qu'un code HTTP nu et impossible à diagnostiquer.
     const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
     const reason = body?.error?.message;
+    const retryAfter = res.status === 429 ? res.headers.get("retry-after") : null;
     throw new Error(
-      `Échec de la récupération du morceau en cours (${res.status})` + (reason ? ` : ${reason}` : ".")
+      `Échec de la récupération du morceau en cours (${res.status})` +
+        (reason ? ` : ${reason}` : ".") +
+        (retryAfter ? ` Nouvelle tentative possible dans ${retryAfter}s.` : "")
     );
   }
   // L'API Spotify répond en snake_case (is_playing, progress_ms) ; on
   // normalise ici vers le camelCase attendu par le reste de l'app, sinon
   // isPlaying/progress restent `undefined` à l'exécution malgré le typage.
+  // `res.json()` décode toujours en UTF-8 : aucun risque d'accents corrompus ici.
   const raw = (await res.json()) as SpotifyCurrentlyPlayingRaw;
-  return {
-    isPlaying: raw.is_playing,
-    progressMs: raw.progress_ms ?? 0,
-    item: raw.item,
-  };
+  return normalizeCurrentlyPlaying(raw, requestedAt, receivedAt);
 }

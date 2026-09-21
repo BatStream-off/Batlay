@@ -18,7 +18,9 @@ export const useToastStore = create<ToastStoreState>((set, get) => ({
   push: (message, kind = "info") => {
     const id = nanoid(6);
     set({ toasts: [...get().toasts, { id, message, kind }] });
-    setTimeout(() => get().dismiss(id), 4000);
+    // Une erreur reste plus longtemps : elle demande souvent une action, et 4 s
+    // ne suffisent pas pour lire un message de diagnostic.
+    setTimeout(() => get().dismiss(id), kind === "error" ? 8000 : 4000);
   },
   dismiss: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
 }));

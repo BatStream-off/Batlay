@@ -5,6 +5,8 @@ import { DemoProvider } from "@/services/demo-provider";
 import { SpotifyProvider } from "@/services/spotify-provider";
 import { SystemMediaProvider } from "@/services/system-media-provider";
 import { useToastStore } from "@/stores/useToastStore";
+import { playbackClock } from "@/services/playback-clock";
+import { feedClock } from "@/utils/progress-clock";
 
 interface MusicStoreState {
   activeProviderId: MusicProviderId | null;
@@ -43,6 +45,9 @@ function attachProvider(
 ): void {
   unsubscribeCurrent?.();
   unsubscribeCurrent = provider.onStateChange((state) => {
+    // L'horloge est alimentée AVANT le set() : quand les composants React
+    // se re-rendent, ils lisent déjà la nouvelle trajectoire.
+    feedClock(playbackClock, state);
     set({ playbackState: state });
     broadcast(state);
   });
@@ -152,9 +157,12 @@ export const useMusicStore = create<MusicStoreState>((set, get) => ({
     if (activeProviderId === "demo") await demoProvider.disconnect();
     if (activeProviderId === "spotify") await spotifyProvider.disconnect();
     if (activeProviderId === "system-media") await systemMediaProvider.disconnect();
-    set({
-      activeProviderId: null,
-      playbackState: { track: null, isPlaying: false, updatedAt: Date.now() },
-    });
+    const empty: PlaybackState = { track: null, isPlaying: false, updatedAt: Date.now() };
+    playbackClock.reset();
+    set({ activeProviderId: null, playbackState: empty });
+    // Sans cette diffusion, OBS gardait à l'écran le dernier morceau (avec sa
+    // barre qui continuait d'avancer) après une déconnexion, car le serveur
+    // d'overlay ne recevait jamais l'état "plus rien en lecture".
+    broadcast(empty);
   },
 }));

@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { PlaybackState } from "../shared/types.js";
+// Types seulement : le preload est bundlé par esbuild, aucun code partagé n'y est embarqué.
+import type { ResolvedTheme, ThemePreference } from "../shared/theme.js";
 
 /**
  * Surface IPC volontairement restreinte : le renderer ne peut appeler
@@ -33,6 +35,21 @@ const batlayApi = {
     isSessionRestorable: () => ipcRenderer.invoke("spotify:is-session-restorable"),
     restoreSession: () => ipcRenderer.invoke("spotify:restore-session"),
     getCurrentlyPlaying: () => ipcRenderer.invoke("spotify:get-currently-playing"),
+  },
+  theme: {
+    /**
+     * Thème résolu, lu de façon SYNCHRONE : le renderer l'applique avant son
+     * premier rendu (voir src/theme/apply-theme.ts), donc sans flash.
+     */
+    getInitial: (): { preference: ThemePreference; resolved: ResolvedTheme } =>
+      ipcRenderer.sendSync("theme:get-initial"),
+    /** Poussé par le process principal : réglage modifié, ou Windows a changé de mode. */
+    onChange: (callback: (payload: { preference: ThemePreference; resolved: ResolvedTheme }) => void) => {
+      const listener = (_e: unknown, payload: { preference: ThemePreference; resolved: ResolvedTheme }) =>
+        callback(payload);
+      ipcRenderer.on("theme:changed", listener);
+      return () => ipcRenderer.removeListener("theme:changed", listener);
+    },
   },
   artwork: {
     lookup: (artist: string, title: string) =>

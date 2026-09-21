@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { useToastStore } from "@/stores/useToastStore";
 
 const KIND_STYLES: Record<string, string> = {
@@ -13,14 +14,17 @@ export function ToastHost() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
+    // aria-live : les lecteurs d'écran annoncent les confirmations sans que le focus bouge.
+    <div role="status" aria-live="polite" className="fixed bottom-6 right-6 z-50 flex max-w-sm flex-col gap-2">
       {toasts.map((t) => (
         <button
           key={t.id}
           onClick={() => dismiss(t.id)}
-          className={`rounded-xl border px-4 py-3 text-left text-sm text-white shadow-glow transition hover:opacity-90 ${KIND_STYLES[t.kind]}`}
+          title="Fermer"
+          className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-left text-sm leading-snug text-fg shadow-glow transition hover:opacity-90 ${KIND_STYLES[t.kind]}`}
         >
-          {t.message}
+          <span className="min-w-0 flex-1">{t.message}</span>
+          <X size={14} className="mt-0.5 shrink-0 text-faint" />
         </button>
       ))}
     </div>

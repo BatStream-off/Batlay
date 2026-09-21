@@ -1,33 +1,49 @@
-import type { CSSProperties } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { OverlayConfig, OverlayComponentConfig } from "@/types/overlay";
 import type { Track } from "@/types/track";
+import type { ProgressReader } from "@/utils/progress-clock";
+import { LiveProgressFill, LiveTimeText } from "@/components/LiveProgress";
+import { formatArtists } from "@/utils/artists";
+import { formatTime } from "@/utils/format-time";
+import {
+  canvasFrameStyle,
+  componentBoxStyle,
+  renderTemplate,
+  textBoxStyle,
+} from "@/utils/overlay-style";
 
 interface OverlayPreviewProps {
   overlay: OverlayConfig;
+  /**
+   * `undefined` : contexte d'édition/miniature -> morceau d'exemple réaliste.
+   * `null`      : overlay OBS réel sans musique détectée -> rien n'est affiché
+   *               (jamais de fausse donnée, ni de fond vide, dans le vrai overlay).
+   */
   track?: Track | null;
-  /** "fit" scale down to fill a thumbnail container; "1:1" render at native size (used by the real OBS overlay page). */
-  scale?: "fit" | "1:1";
-  onSelectComponent?: (id: string) => void;
-  selectedComponentId?: string | null;
+  /**
+   * Horloge de progression (voir src/utils/progress-clock.ts). Sans elle, la
+   * barre et le temps écoulé affichent la progression statique de `track`.
+   */
+  reader?: ProgressReader | null;
+  /**
+   * "fit"  : réduit pour remplir le conteneur (miniatures) ;
+   * "1:1"  : taille native (page OBS) ;
+   * nombre : zoom explicite (éditeur).
+   */
+  scale?: "fit" | "1:1" | number;
 }
 
-const SAMPLE_TRACK: Track = {
+export const SAMPLE_TRACK: Track = {
   id: "sample",
-  title: "Blinding Lights",
-  artist: "The Weeknd",
-  album: "After Hours",
+  title: "Starboy",
+  artist: "The Weeknd, Daft Punk",
+  artists: ["The Weeknd", "Daft Punk"],
+  album: "Starboy",
   source: "Spotify",
-  duration: 200_000,
+  duration: 230_000,
   progress: 84_000,
   isPlaying: true,
 };
-
-function formatTime(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
 
 /**
  * IMPORTANT — ne PAS utiliser de classes Tailwind (h-full, w-full, ...) pour
@@ -46,146 +62,259 @@ function formatTime(ms: number): string {
  */
 const FILL_PARENT: CSSProperties = { width: "100%", height: "100%" };
 
-function componentContent(component: OverlayComponentConfig, track: Track): React.ReactNode {
+const MARQUEE_GAP_PX = 48;
+const MARQUEE_KEYFRAMES = `@keyframes batlay-marquee { from { transform: translateX(0); } to { transform: translateX(var(--batlay-marquee-distance)); } }`;
+
+/**
+ * Texte qui défile en boucle SEULEMENT s'il déborde de son bloc. Un texte qui
+ * tient reste immobile. C'est ce qui permet d'afficher « Artiste 1, Artiste 2,
+ * Artiste 3 » en entier dans un bloc étroit, là où « … » n'en montrait qu'un.
+ */
+function MarqueeText({ text, speed }: { text: string; speed: number }) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [textWidth, setTextWidth] = useState(0);
+  const [overflowing, setOverflowing] = useState(false);
+
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const span = textRef.current;
+    if (!box || !span) return;
+    const measure = () => {
+      const width = span.offsetWidth; // largeur de mise en page : insensible à la transformation animée
+      setTextWidth(width);
+      setOverflowing(width > box.clientWidth + 1);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    observer.observe(span);
+    return () => observer.disconnect();
+  }, [text]);
+
+  const distance = textWidth + MARQUEE_GAP_PX;
+  const durationS = Math.max(4, distance / Math.max(5, speed));
+
+  return (
+    <div ref={boxRef} style={{ width: "100%", minWidth: 0, overflow: "hidden", whiteSpace: "nowrap" }}>
+      <div
+        key={overflowing ? `run-${text}` : "still"}
+        style={
+          overflowing
+            ? ({
+                display: "inline-flex",
+                gap: MARQUEE_GAP_PX,
+                animation: `batlay-marquee ${durationS}s linear infinite`,
+                willChange: "transform",
+                ["--batlay-marquee-distance" as string]: `-${distance}px`,
+              } as CSSProperties)
+            : { display: "inline-block" }
+        }
+      >
+        <span ref={textRef} style={{ display: "inline-block" }}>
+          {text}
+        </span>
+        {overflowing && (
+          <span aria-hidden style={{ display: "inline-block" }}>
+            {text}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TextContent({ component, text }: { component: OverlayComponentConfig; text: string }) {
+  const mode = component.style.overflow ?? (component.type === "artist" ? "marquee" : "ellipsis");
+  if (mode === "marquee") return <MarqueeText text={text} speed={component.style.marqueeSpeed ?? 40} />;
+  if (mode === "wrap") {
+    return <div style={{ width: "100%", minWidth: 0, whiteSpace: "normal", overflowWrap: "anywhere" }}>{text}</div>;
+  }
+  return (
+    <div style={{ width: "100%", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      {text}
+    </div>
+  );
+}
+
+function componentContent(component: OverlayComponentConfig, track: Track, reader?: ProgressReader | null): ReactNode {
+  const live = { reader, fallbackProgress: track.progress, duration: track.duration };
   switch (component.type) {
     case "artwork":
       return track.artwork ? (
-        <img src={track.artwork} alt="" style={{ ...FILL_PARENT, objectFit: "cover", display: "block" }} />
+        <img
+          src={track.artwork}
+          alt=""
+          style={{ ...FILL_PARENT, objectFit: component.style.objectFit ?? "cover", display: "block" }}
+        />
       ) : (
         <div style={{ ...FILL_PARENT, backgroundColor: "rgba(255,255,255,0.08)" }} />
       );
     case "title":
-      // Métadonnées absentes : on affiche un libellé propre plutôt qu'un
-      // bloc vide, qui donnerait l'impression que l'overlay est cassé.
-      return track.title || "Titre inconnu";
+      // Métadonnées absentes : libellé propre plutôt qu'un bloc vide.
+      return <TextContent component={component} text={track.title || "Titre inconnu"} />;
     case "artist":
-      // Tous les artistes sont conservés tels quels ("A, B, C") : c'est le
-      // provider qui décide du formatage, pas l'affichage.
-      return track.artist || "Artiste inconnu";
+      // TOUS les artistes, jamais seulement le premier ; le séparateur est réglable.
+      return (
+        <TextContent
+          component={component}
+          text={formatArtists(track, component.style.artistSeparator) || "Artiste inconnu"}
+        />
+      );
     case "album":
-      return track.album ?? "";
+      return <TextContent component={component} text={track.album ?? ""} />;
     case "source":
-      return track.source ?? "";
+      return <TextContent component={component} text={track.source ?? ""} />;
+    case "text":
+      return (
+        <TextContent
+          component={component}
+          text={renderTemplate(component.content ?? "", {
+            title: track.title,
+            artist: formatArtists(track, component.style.artistSeparator),
+            album: track.album ?? "",
+            source: track.source ?? "",
+          })}
+        />
+      );
     case "elapsedTime":
-      return formatTime(track.progress);
+      return <LiveTimeText {...live} mode="elapsed" />;
+    case "remainingTime":
+      return <LiveTimeText {...live} mode="remaining" />;
     case "duration":
       return formatTime(track.duration);
-    case "progressBar": {
-      const pct =
-        track.duration > 0
-          ? Math.min(100, Math.max(0, (track.progress / track.duration) * 100))
-          : 0;
+    case "progressBar":
       return (
-        <div
-          style={{
-            ...FILL_PARENT,
-            overflow: "hidden",
+        <LiveProgressFill
+          {...live}
+          trackStyle={{
             backgroundColor: component.style.trackColor ?? "rgba(255,255,255,0.15)",
             borderRadius: component.style.borderRadius,
           }}
-        >
-          <div
-            style={{
-              height: "100%",
-              width: `${pct}%`,
-              backgroundColor: component.style.fillColor ?? "#FFFFFF",
-              borderRadius: component.style.borderRadius,
-            }}
-          />
-        </div>
+          fillStyle={{
+            backgroundColor: component.style.fillColor ?? "#FFFFFF",
+            borderRadius: component.style.borderRadius,
+          }}
+        />
       );
-    }
+    case "shape":
     default:
       return null;
   }
 }
 
+const TEXT_TYPES = new Set<OverlayComponentConfig["type"]>([
+  "title",
+  "artist",
+  "album",
+  "source",
+  "elapsedTime",
+  "remainingTime",
+  "duration",
+  "text",
+]);
+
 function componentStyle(component: OverlayComponentConfig): CSSProperties {
-  const s = component.style;
-  const base: CSSProperties = {
-    position: "absolute",
-    left: component.transform.x,
-    top: component.transform.y,
-    width: component.transform.width,
-    height: component.transform.height,
-  };
-
-  if (component.type === "artwork") {
-    return {
-      ...base,
-      borderRadius: s.shape === "circle" ? "50%" : (s.borderRadius ?? 0),
-      overflow: "hidden",
-      border: s.borderWidth ? `${s.borderWidth}px solid ${s.borderColor ?? "transparent"}` : undefined,
-      boxShadow: s.shadow ? "0 8px 24px -6px rgba(0,0,0,0.5)" : undefined,
-    };
-  }
-
-  if (component.type === "progressBar") return base;
-
-  return {
-    ...base,
-    fontSize: s.fontSize ?? 16,
-    fontWeight: s.fontWeight ?? 400,
-    color: s.color ?? "#FFFFFF",
-    textAlign: s.textAlign ?? "left",
-    opacity: s.opacity ?? 1,
-    maxWidth: s.maxWidth,
-    textTransform: s.textTransform ?? "none",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    fontFamily: "'Inter', system-ui, sans-serif",
-  };
+  const box = componentBoxStyle(component);
+  if (component.type === "artwork") return { ...box, overflow: "hidden" };
+  if (TEXT_TYPES.has(component.type)) return { ...box, ...textBoxStyle(component) };
+  return box; // progressBar, shape
 }
 
-export function OverlayPreview({ overlay, track, scale = "fit", onSelectComponent, selectedComponentId }: OverlayPreviewProps) {
-  // `track` omis (undefined) : contexte d'édition/miniature -> exemple réaliste.
-  // `track` explicitement `null` : overlay OBS réel sans musique détectée pour
-  // l'instant -> ne rien afficher (jamais de fausse donnée dans le vrai overlay).
-  const effectiveTrack = track === undefined ? SAMPLE_TRACK : track;
-  const { canvasWidth, canvasHeight } = overlay.theme;
-
-  const wrapperStyle: CSSProperties =
-    scale === "fit"
-      ? {
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }
-      : { width: canvasWidth, height: canvasHeight };
-
+/**
+ * Rendu natif (1:1) d'un overlay. Partagé par la page OBS, l'éditeur et les
+ * miniatures.
+ */
+export function OverlayCanvas({
+  overlay,
+  track,
+  reader,
+}: {
+  overlay: OverlayConfig;
+  track: Track | null;
+  reader?: ProgressReader | null;
+}) {
+  const { canvasWidth, canvasHeight, borderRadius } = overlay.theme;
   return (
-    <div style={wrapperStyle}>
-      <div
-        style={{
-          position: "relative",
-          width: canvasWidth,
-          height: canvasHeight,
-          transformOrigin: "center",
-        }}
-        className={scale === "fit" ? "origin-center scale-[0.32]" : ""}
-      >
-        {effectiveTrack &&
-          [...overlay.components]
+    <div
+      style={{
+        position: "relative",
+        width: canvasWidth,
+        height: canvasHeight,
+        // Arrondi du canvas : rogne aussi les composants qui dépassent.
+        overflow: borderRadius ? "hidden" : undefined,
+        borderRadius: borderRadius || undefined,
+      }}
+    >
+      {track && (
+        <>
+          <style>{MARQUEE_KEYFRAMES}</style>
+          <div style={canvasFrameStyle(overlay.theme)} />
+          {[...overlay.components]
             .filter((c) => c.visible)
             .sort((a, b) => a.order - b.order)
             .map((component) => (
-              <div
-                key={component.id}
-                style={componentStyle(component)}
-                onClick={() => onSelectComponent?.(component.id)}
-                className={
-                  onSelectComponent
-                    ? `cursor-pointer ${selectedComponentId === component.id ? "outline outline-2 outline-signal-500" : ""}`
-                    : undefined
-                }
-              >
-                {componentContent(component, effectiveTrack)}
+              <div key={component.id} style={componentStyle(component)}>
+                {componentContent(component, track, reader)}
               </div>
             ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Échelle qui fait tenir `contentW × contentH` dans le conteneur observé. */
+function useFitScale(contentW: number, contentH: number, enabled: boolean) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0.32);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!enabled || !el) return;
+    const measure = () => {
+      const { width, height } = el.getBoundingClientRect();
+      if (width > 0 && height > 0 && contentW > 0 && contentH > 0) {
+        // Marge de 8 % pour ne pas coller aux bords de la vignette.
+        setScale(Math.min(width / contentW, height / contentH) * 0.92);
+      }
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [contentW, contentH, enabled]);
+
+  return { ref, scale };
+}
+
+export function OverlayPreview({ overlay, track, reader, scale = "fit" }: OverlayPreviewProps) {
+  const effectiveTrack = track === undefined ? SAMPLE_TRACK : track;
+  const { canvasWidth, canvasHeight } = overlay.theme;
+  const fit = useFitScale(canvasWidth, canvasHeight, scale === "fit");
+
+  const canvas = <OverlayCanvas overlay={overlay} track={effectiveTrack} reader={reader} />;
+
+  if (scale === "1:1") return <div style={{ width: canvasWidth, height: canvasHeight }}>{canvas}</div>;
+
+  const factor = scale === "fit" ? fit.scale : scale;
+  const scaled = (
+    <div style={{ width: canvasWidth * factor, height: canvasHeight * factor, flexShrink: 0 }}>
+      <div style={{ width: canvasWidth, height: canvasHeight, transform: `scale(${factor})`, transformOrigin: "top left" }}>
+        {canvas}
       </div>
+    </div>
+  );
+
+  if (scale !== "fit") return scaled;
+  return (
+    <div
+      ref={fit.ref}
+      style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}
+    >
+      {scaled}
     </div>
   );
 }

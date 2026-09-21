@@ -3,6 +3,7 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import path from "node:path";
 import type { PlaybackState } from "../shared/types.js";
+import { ArtworkStore } from "./artwork-store.js";
 
 /**
  * Le Batlay Overlay Server sert :
@@ -23,6 +24,9 @@ export class OverlayServer {
   // C'est ainsi que la page overlay (servie statiquement, sans accès direct
   // au config-store d'Electron) récupère la configuration à afficher.
   private overlayConfigs = new Map<string, unknown>();
+  /** JSON sérialisé de chaque config : détecte ce qui a réellement changé à la sauvegarde. */
+  private overlayConfigJson = new Map<string, string>();
+  private artworkStore = new ArtworkStore();
 
   constructor(port: number, staticDir: string) {
     this.port = port;
@@ -42,6 +46,18 @@ export class OverlayServer {
       }
       res.json(config);
     });
+    // Pochettes "data:" (Lecture système) servies une fois et mises en cache
+    // par le navigateur, au lieu d'être ré-envoyées dans chaque message WebSocket.
+    this.app.get("/api/artwork/:id", (req, res) => {
+      const artwork = this.artworkStore.get(req.params.id);
+      if (!artwork) {
+        res.status(404).end();
+        return;
+      }
+      // L'id est un hash du contenu : l'image ne change jamais pour une même URL.
+      res.set("Cache-Control", "public, max-age=31536000, immutable");
+      res.type(artwork.mime).send(artwork.data);
+    });
     this.app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
     this.httpServer = createServer(this.app);
@@ -55,7 +71,7 @@ export class OverlayServer {
       }
       this.registerClient(overlayId, ws);
       // Envoi immédiat de l'état actuel pour éviter un overlay vide au chargement
-      ws.send(JSON.stringify({ type: "state", payload: this.lastState }));
+      ws.send(this.buildStateMessage(this.lastState));
 
       ws.on("close", () => this.clientsByOverlay.get(overlayId)?.delete(ws));
     });
@@ -74,10 +90,24 @@ export class OverlayServer {
     this.clientsByOverlay.get(overlayId)!.add(ws);
   }
 
+  /**
+   * Message "state". `sentAt` est l'horloge de CE process au moment de
+   * l'envoi : combiné à `payload.updatedAt` (même horloge, instant de la
+   * mesure), il donne à l'overlay l'âge exact de la mesure sans dépendre de
+   * la synchronisation entre l'horloge d'OBS et celle de Batlay.
+   */
+  private buildStateMessage(state: PlaybackState): string {
+    return JSON.stringify({
+      type: "state",
+      payload: this.artworkStore.externalize(state),
+      sentAt: Date.now(),
+    });
+  }
+
   /** Diffuse le nouvel état de lecture à tous les overlays connectés. */
   broadcastState(state: PlaybackState): void {
     this.lastState = state;
-    const message = JSON.stringify({ type: "state", payload: state });
+    const message = this.buildStateMessage(state);
     for (const clients of this.clientsByOverlay.values()) {
       for (const ws of clients) {
         if (ws.readyState === WebSocket.OPEN) ws.send(message);
@@ -89,9 +119,25 @@ export class OverlayServer {
     return `http://localhost:${this.port}/overlay/${overlayId}`;
   }
 
-  /** Met à jour la liste des overlays disponibles pour la route /api/overlays/:id. */
+  /**
+   * Met à jour la liste des overlays disponibles pour la route
+   * /api/overlays/:id, et POUSSE aux overlays déjà ouverts dans OBS ceux dont
+   * la configuration a changé : un "Save" dans l'éditeur se voit
+   * immédiatement à l'antenne, sans recharger la Browser Source.
+   */
   setOverlayConfigs(overlays: { id: string }[]): void {
+    const previousJson = this.overlayConfigJson;
     this.overlayConfigs = new Map(overlays.map((o) => [o.id, o]));
+    this.overlayConfigJson = new Map(overlays.map((o) => [o.id, JSON.stringify(o)]));
+
+    for (const overlay of overlays) {
+      const before = previousJson.get(overlay.id);
+      if (before === undefined || before === this.overlayConfigJson.get(overlay.id)) continue;
+      const message = JSON.stringify({ type: "config", payload: overlay });
+      for (const ws of this.clientsByOverlay.get(overlay.id) ?? []) {
+        if (ws.readyState === WebSocket.OPEN) ws.send(message);
+      }
+    }
   }
 
   start(): Promise<void> {

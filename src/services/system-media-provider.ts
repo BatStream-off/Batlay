@@ -1,5 +1,8 @@
 import type { MusicProvider } from "./music-provider";
 import type { Track, PlaybackState } from "@/types/track";
+import { cleanMetadataText } from "@/utils/text-encoding";
+import { resolveSpotifyMetadata, SPOTIFY_AD_TRACK_ID } from "@/utils/spotify-metadata";
+import { createMetadataDebugLogger, isMetadataDebugEnabled } from "@/utils/metadata-debug";
 
 /**
  * Cadence de détection.
@@ -57,6 +60,12 @@ export function prettifySourceApp(appId: string | null | undefined): string {
   return base ? base.charAt(0).toUpperCase() + base.slice(1) : "";
 }
 
+/** Journal de diagnostic des métadonnées : inactif tant que le drapeau localStorage n'est pas posé (voir metadata-debug.ts). */
+const logMetadataDebug = createMetadataDebugLogger({
+  isEnabled: isMetadataDebugEnabled,
+  write: (message) => console.log(message),
+});
+
 /**
  * Lit le morceau en cours directement depuis les contrôles multimédias
  * système de Windows (voir electron/services/system-media.ts), sans
@@ -95,6 +104,12 @@ export class SystemMediaProvider implements MusicProvider {
   private remoteArtwork: { trackId: string; url: string | null } | null = null;
   /** Morceau dont la recherche en ligne est en cours (évite les appels concurrents). */
   private remoteLookupInFlight: string | null = null;
+  /** Morceau dont la pochette est en cours de récupération (système puis en ligne). */
+  private artworkInFlight: string | null = null;
+  /** Tentatives de lecture de la vignette système pour le morceau courant (voir requestArtwork). */
+  private thumbnailAttempts: { trackId: string; count: number; lastAt: number } | null = null;
+  /** Invalide les tâches en vol (pochette) après un disconnect(). */
+  private generation = 0;
 
   async connect(): Promise<void> {
     const supported = await window.batlay.systemMedia.isSupported();
@@ -113,10 +128,13 @@ export class SystemMediaProvider implements MusicProvider {
 
   async disconnect(): Promise<void> {
     this.connected = false;
+    this.generation++;
     this.stopPolling();
     this.lastArtwork = null;
     this.remoteArtwork = null;
     this.remoteLookupInFlight = null;
+    this.artworkInFlight = null;
+    this.thumbnailAttempts = null;
     this.lastState = null;
     this.lastIsPlaying = null;
     this.fastUntil = 0;
@@ -144,6 +162,7 @@ export class SystemMediaProvider implements MusicProvider {
     // Le lecteur change : les pochettes mises en cache ne sont plus valides.
     this.lastArtwork = null;
     this.remoteArtwork = null;
+    this.thumbnailAttempts = null;
   }
 
   getPreferredSession(): string | null {
@@ -151,95 +170,215 @@ export class SystemMediaProvider implements MusicProvider {
   }
 
   async getCurrentTrack(): Promise<Track | null> {
-    if (!this.connected) return null;
+    return (await this.readState()).track;
+  }
+
+  /**
+   * Un relevé complet : interroge Windows UNE fois (un seul process
+   * PowerShell) et construit l'état. La pochette n'est jamais attendue ici
+   * — voir requestArtwork.
+   */
+  private async readState(): Promise<PlaybackState> {
+    if (!this.connected) return { track: null, isPlaying: false, updatedAt: Date.now() };
 
     const data = await window.batlay.systemMedia.getCurrent({ preferredAppId: this.preferredAppId ?? undefined });
     if (!data) {
       this.lastArtwork = null;
       this.remoteArtwork = null;
-      return null;
+      this.thumbnailAttempts = null;
+      return { track: null, isPlaying: false, updatedAt: Date.now() };
     }
+
+    // Texte nettoyé une seule fois, ici : NFC, caractères de contrôle, et
+    // réparation d'un éventuel mojibake fourni par la source elle-même.
+    // (Les "�" venaient de la sortie PowerShell, corrigée dans
+    // electron/services/system-media.ts ; ceci couvre les sources dont les
+    // tags sont mal lus en amont.)
+    const smtcTitle = cleanMetadataText(data.title);
+    const smtcArtist = cleanMetadataText(data.artist);
+    const album = cleanMetadataText(data.album);
+    const windowTitle = cleanMetadataText(data.windowTitle);
+
+    // Spotify Desktop : SMTC peut rester sur le morceau précédent pendant une
+    // pub et n'afficher qu'une partie des artistes. Le titre de sa fenêtre sert
+    // à recouper (voir src/utils/spotify-metadata.ts) ; pour les autres
+    // lecteurs, ce recoupement ne change rien.
+    const resolved = resolveSpotifyMetadata({
+      sourceAppId: data.sourceAppId,
+      title: smtcTitle,
+      artist: smtcArtist,
+      windowTitle,
+    });
+    const isAd = resolved.isAd;
+    const rawTitle = resolved.title;
+    const rawArtist = resolved.artist;
+
+    logMetadataDebug(
+      `${smtcTitle}::${smtcArtist}`,
+      {
+        title: data.title,
+        artist: data.artist,
+        album: data.album ?? "",
+        albumArtist: data.albumArtist ?? "",
+        windowTitle: data.windowTitle ?? "",
+      },
+      { title: rawTitle, artist: rawArtist, album, windowTitle }
+    );
 
     // Pas d'identifiant stable fourni par Windows : on en dérive un à
-    // partir du titre + artiste pour que l'Overlay Engine détecte
-    // correctement les changements de morceau.
-    const trackId = `${data.title}::${data.artist}`;
+    // partir du titre + artiste SMTC pour que l'Overlay Engine détecte
+    // correctement les changements de morceau. Volontairement bâti sur les
+    // valeurs SMTC BRUTES et non sur l'artiste affiché : la fenêtre Spotify
+    // apparaît et disparaît (réduction dans la zone de notification), et
+    // l'identifiant ne doit pas changer en cours de morceau pour autant.
+    // Pendant une pub : identifiant constant (voir SPOTIFY_AD_TRACK_ID).
+    const trackId = isAd ? SPOTIFY_AD_TRACK_ID : `${smtcTitle}::${smtcArtist}`;
 
-    let artwork: string | undefined = this.lastArtwork?.trackId === trackId ? this.lastArtwork.dataUri : undefined;
-    if (!artwork) {
-      // La pochette n'est demandée que lorsque le morceau a changé (ou au
-      // premier poll) : c'est nettement plus lent à récupérer côté
-      // PowerShell/WinRT qu'un simple statut de lecture, donc on évite de
-      // la re-télécharger à chaque tick de polling (2s) pour rien.
-      try {
-        const withArtwork = await window.batlay.systemMedia.getCurrent({
-          preferredAppId: this.preferredAppId ?? undefined,
-          includeArtwork: true,
-        });
-        if (withArtwork?.artwork) {
-          artwork = withArtwork.artwork;
-          this.lastArtwork = { trackId, dataUri: artwork };
-          console.log(
-            `[Batlay] Pochette récupérée pour "${trackId}" (${Math.round(withArtwork.artwork.length / 1024)} Ko).`
-          );
-        } else if (withArtwork) {
-          // Diagnostic : n'empêche jamais l'affichage du titre/artiste,
-          // mais permet de comprendre pourquoi l'image manque (voir
-          // DevTools > Console dans la fenêtre Batlay).
-          if (!withArtwork.hasThumbnail) {
-            console.warn(
-              `[Batlay] "${withArtwork.title}" (${withArtwork.sourceAppId ?? "app inconnue"}) n'expose aucune pochette au système (SMTC) — rien à afficher pour ce lecteur.`
-            );
-          } else if (withArtwork.artworkError) {
-            console.warn(`[Batlay] Échec de récupération de la pochette : ${withArtwork.artworkError}`);
-          }
-        }
-      } catch {
-        // La pochette est un bonus visuel : un échec ici ne doit jamais
-        // empêcher l'affichage du titre/artiste/progression.
-      }
-    }
+    let artwork: string | undefined;
+    if (this.lastArtwork?.trackId === trackId) artwork = this.lastArtwork.dataUri;
+    else if (this.remoteArtwork?.trackId === trackId && this.remoteArtwork.url) artwork = this.remoteArtwork.url;
 
-    // Le lecteur n'a rien donné : on complète avec une recherche en ligne
-    // (artiste + titre). Volontairement NON bloquant — la progression et le
-    // titre ne doivent jamais attendre le réseau. La pochette apparaît au
-    // poll suivant (~2s), une seule fois par morceau grâce au cache.
-    if (!artwork) {
-      if (this.remoteArtwork?.trackId === trackId) {
-        artwork = this.remoteArtwork.url ?? undefined;
-      } else {
-        void this.lookupRemoteArtwork(trackId, data.artist, data.title);
-      }
-    }
+    // Pochette : récupérée EN ARRIÈRE-PLAN. Elle exige un second process
+    // PowerShell (lent : décodage de l'image) ; l'attendre ici retardait
+    // d'autant l'affichage du titre et de la progression à chaque changement
+    // de morceau. Le résultat est ré-émis dès qu'il arrive (applyArtwork).
+    // Jamais de pochette à chercher pour une pub. La recherche en ligne utilise
+    // l'artiste et le titre SMTC (ceux du catalogue), pas l'artiste enrichi.
+    if (!artwork && !isAd) this.requestArtwork(trackId, smtcArtist, smtcTitle, data.sourceAppId ?? null);
 
-    if (data.durationMs === 0) {
+    if (data.durationMs === 0 && !isAd) {
       console.warn(
-        `[Batlay] "${data.title}" (${data.sourceAppId ?? "app inconnue"}) ne fournit pas de durée totale via les contrôles multimédias Windows — la barre de progression restera vide pour ce lecteur (limitation de l'app source, pas de Batlay).`
+        `[Batlay] "${rawTitle}" (${data.sourceAppId ?? "app inconnue"}) ne fournit pas de durée totale via les contrôles multimédias Windows — la barre de progression restera vide pour ce lecteur (limitation de l'app source, pas de Batlay).`
       );
     }
 
-    return {
+    const track: Track = {
       id: trackId,
       // Métadonnées absentes : libellés explicites plutôt que du vide.
-      title: data.title || "Titre inconnu",
+      title: rawTitle || "Titre inconnu",
       // L'artiste est transmis TEL QUEL : "Artiste 1, Artiste 2, Artiste 3"
       // reste intact. Aucun découpage ici — la normalisation n'existe que
       // pour la recherche de pochette, jamais pour l'affichage.
-      artist: data.artist || "Artiste inconnu",
-      album: data.album ?? undefined,
+      // (Limite de la source : Windows ne transmet que la chaîne que l'app
+      // lui donne ; si l'app n'y met qu'un artiste, il n'y en a qu'un ici.)
+      artist: rawArtist || "Artiste inconnu",
+      album: isAd ? undefined : album || undefined,
       source: prettifySourceApp(data.sourceAppId),
       artwork,
-      duration: data.durationMs,
-      progress: data.positionMs,
+      // Pendant une pub, la chronologie SMTC peut encore être celle du morceau
+      // précédent : mieux vaut une barre vide qu'une barre fausse.
+      duration: isAd ? 0 : data.durationMs,
+      progress: isAd ? 0 : data.positionMs,
       isPlaying: data.isPlaying,
       playbackStatus: data.playbackStatus ?? (data.isPlaying ? "playing" : "paused"),
+    };
+
+    return {
+      track,
+      isPlaying: track.isPlaying,
+      // Instant de la MESURE côté Windows (et non celui où on a fini de
+      // traiter la réponse) : l'horloge de progression compense ainsi la
+      // latence du process PowerShell au lieu de la subir.
+      updatedAt: data.sampledAtMs ?? Date.now(),
     };
   }
 
   /**
+   * Récupère la pochette sans jamais bloquer le relevé :
+   *   1. vignette exposée par le lecteur via Windows (data URI) ;
+   *   2. sinon recherche en ligne (voir lookupRemoteArtwork).
+   * Le résultat est mis en cache pour le morceau, puis ré-émis aux abonnés.
+   */
+  private requestArtwork(trackId: string, artist: string, title: string, sourceAppId: string | null): void {
+    if (this.artworkInFlight === trackId) return;
+
+    // Vignette système : plusieurs tentatives espacées (certains navigateurs
+    // publient la pochette quelques secondes après le titre), pas une par
+    // poll — chaque tentative coûte un process PowerShell.
+    const attempts = this.thumbnailAttempts?.trackId === trackId ? this.thumbnailAttempts : null;
+    const mayTryThumbnail = !attempts || (attempts.count < 3 && Date.now() - attempts.lastAt > 3000);
+    const mayTryRemote = this.remoteArtwork?.trackId !== trackId;
+    if (!mayTryThumbnail && !mayTryRemote) return;
+
+    this.artworkInFlight = trackId;
+    const generation = this.generation;
+
+    void (async () => {
+      try {
+        let found: string | undefined;
+
+        if (mayTryThumbnail) {
+          this.thumbnailAttempts = { trackId, count: (attempts?.count ?? 0) + 1, lastAt: Date.now() };
+          try {
+            const withArtwork = await window.batlay.systemMedia.getCurrent({
+              preferredAppId: this.preferredAppId ?? undefined,
+              includeArtwork: true,
+            });
+            if (generation !== this.generation) return;
+            if (withArtwork?.artwork) {
+              found = withArtwork.artwork;
+              this.lastArtwork = { trackId, dataUri: found };
+              console.log(
+                `[Batlay] Pochette récupérée pour "${trackId}" (${Math.round(withArtwork.artwork.length / 1024)} Ko).`
+              );
+            } else if (withArtwork) {
+              // Diagnostic : n'empêche jamais l'affichage du titre/artiste,
+              // mais permet de comprendre pourquoi l'image manque (voir
+              // DevTools > Console dans la fenêtre Batlay).
+              if (!withArtwork.hasThumbnail) {
+                console.warn(
+                  `[Batlay] "${withArtwork.title}" (${withArtwork.sourceAppId ?? sourceAppId ?? "app inconnue"}) n'expose aucune pochette au système (SMTC) — rien à afficher pour ce lecteur.`
+                );
+              } else if (withArtwork.artworkError) {
+                console.warn(`[Batlay] Échec de récupération de la pochette : ${withArtwork.artworkError}`);
+              }
+            }
+          } catch {
+            // La pochette est un bonus visuel : un échec ici ne doit jamais
+            // empêcher l'affichage du titre/artiste/progression.
+          }
+        }
+
+        // Le lecteur n'a rien donné : recherche en ligne (artiste + titre).
+        if (!found && mayTryRemote) {
+          await this.lookupRemoteArtwork(trackId, artist, title);
+          if (generation !== this.generation) return;
+          found = this.remoteArtwork?.trackId === trackId ? (this.remoteArtwork.url ?? undefined) : undefined;
+        }
+
+        if (found) this.applyArtwork(trackId, found);
+      } finally {
+        if (this.artworkInFlight === trackId) this.artworkInFlight = null;
+      }
+    })();
+  }
+
+  /** Ré-émet l'état courant avec la pochette dès qu'elle arrive, sans attendre le poll suivant. */
+  private applyArtwork(trackId: string, artwork: string): void {
+    const state = this.lastState;
+    if (!state?.track || state.track.id !== trackId || state.track.artwork === artwork) return;
+    const next: PlaybackState = { ...state, track: { ...state.track, artwork } };
+    this.lastState = next;
+    this.emit(next);
+  }
+
+  /** Complète un état frais avec une pochette déjà en cache (course entre relevé et pochette). */
+  private withCachedArtwork(state: PlaybackState): PlaybackState {
+    const track = state.track;
+    if (!track || track.artwork) return state;
+    const cached =
+      this.lastArtwork?.trackId === track.id
+        ? this.lastArtwork.dataUri
+        : this.remoteArtwork?.trackId === track.id
+          ? (this.remoteArtwork.url ?? undefined)
+          : undefined;
+    return cached ? { ...state, track: { ...track, artwork: cached } } : state;
+  }
+
+  /**
    * Recherche la pochette en ligne via le process principal
-   * (electron/services/artwork-lookup.ts : iTunes puis Deezer, sans clé
-   * d'API, avec cache). Le résultat — succès ou échec — est mémorisé pour
+   * (electron/services/artwork-lookup.ts : iTunes, Deezer, ListenBrainz,
+   * MusicBrainz, Audius en parallèle, sans clé d'API, avec cache). Le résultat — succès ou échec — est mémorisé pour
    * ce morceau afin de ne jamais relancer la recherche à chaque poll.
    */
   private async lookupRemoteArtwork(trackId: string, artist: string, title: string): Promise<void> {
@@ -265,8 +404,7 @@ export class SystemMediaProvider implements MusicProvider {
   }
 
   async getPlaybackState(): Promise<PlaybackState> {
-    const track = await this.getCurrentTrack();
-    return { track, isPlaying: track?.isPlaying ?? false, updatedAt: Date.now() };
+    return this.readState();
   }
 
   onStateChange(listener: (state: PlaybackState) => void): () => void {
@@ -314,7 +452,7 @@ export class SystemMediaProvider implements MusicProvider {
 
   private async pollOnce(): Promise<void> {
     try {
-      const state = await this.getPlaybackState();
+      const state = this.withCachedArtwork(await this.readState());
       const currentTrackId = state.track?.id ?? null;
       const currentIsPlaying = state.track?.isPlaying ?? false;
 

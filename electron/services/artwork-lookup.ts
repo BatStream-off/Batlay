@@ -20,17 +20,28 @@
  * D'où l'étage de normalisation ci-dessous, qui produit plusieurs
  * *candidats* de recherche, du plus précis au plus permissif.
  *
- * Sources interrogées, dans cet ordre déterministe
- * ------------------------------------------------
+ * Sources interrogées EN PARALLÈLE
+ * ---------------------------------
+ * Toutes les sources partent en même temps ; le premier résultat jugé fiable
+ * gagne et annule les requêtes encore en vol. Le temps de recherche est donc
+ * celui de la source la plus rapide qui connaît le morceau, et non plus la
+ * somme des sources traversées. Rang de préférence (il ne sert qu'à
+ * départager deux réponses quasi simultanées) :
+ *
  * 1. iTunes Search API (itunes.apple.com) — sans clé, très rapide, large
  *    couverture, URL de pochette redimensionnable (100x100 -> 600x600).
  *    ~20 appels/min par IP ; Apple demande explicitement de mettre en cache.
  * 2. Deezer API publique (api.deezer.com) — sans clé, ~50 req/5s, meilleure
  *    couverture du catalogue européen/francophone et des sorties indé.
- * 3. MusicBrainz + Cover Art Archive — sans clé, exige un User-Agent
- *    identifiant et 1 requête/seconde. Lent, donc en dernier recours, mais
- *    c'est la seule source ouverte qui couvre le catalogue non commercial
- *    (classique, metal obscur, netlabels, autoproductions).
+ *    Recherche stricte, puis libre si la stricte ne donne rien.
+ * 3. ListenBrainz (api.listenbrainz.org) + Cover Art Archive — sans clé,
+ *    correspondance floue adossée à MusicBrainz, tolérante aux fautes et aux
+ *    titres approximatifs, sans la limite de 1 req/s de MusicBrainz.
+ * 4. MusicBrainz + Cover Art Archive — sans clé, exige un User-Agent
+ *    identifiant et 1 requête/seconde. Seule source ouverte qui couvre le
+ *    catalogue non commercial (classique, metal obscur, netlabels).
+ * 5. Audius (api.audius.co) — sans clé, plateforme ouverte : musique
+ *    indépendante et électronique absente des catalogues commerciaux.
  *
  * Garanties
  * ---------
@@ -54,6 +65,10 @@ const ITUNES_ENDPOINT = "https://itunes.apple.com/search";
 const DEEZER_ENDPOINT = "https://api.deezer.com/search";
 const MUSICBRAINZ_ENDPOINT = "https://musicbrainz.org/ws/2/recording";
 const COVERART_ENDPOINT = "https://coverartarchive.org";
+const LISTENBRAINZ_ENDPOINT = "https://api.listenbrainz.org/1/metadata/lookup/";
+const AUDIUS_ENDPOINT = "https://api.audius.co/v1/tracks/search";
+/** Audius demande un `app_name` (identification, pas une clé). */
+const AUDIUS_APP_NAME = "Batlay";
 
 /** MusicBrainz exige un User-Agent identifiant l'application. */
 const USER_AGENT = "Batlay/0.1 (overlay musical pour OBS)";
@@ -65,13 +80,16 @@ const USER_AGENT = "Batlay/0.1 (overlay musical pour OBS)";
  */
 const REQUEST_TIMEOUT_MS = 3500;
 /**
- * Avance laissée à iTunes avant de lancer Deezer en renfort. Assez court
- * pour ne pas se voir à l'antenne, assez long pour qu'une réponse iTunes
- * normale (~150-400 ms) évite complètement la requête Deezer.
+ * Quand une source répond avant une source mieux classée (voir SOURCES), on
+ * laisse ce délai à la mieux classée pour arriver. Court : c'est le prix
+ * maximal payé pour des résultats stables d'un lancement à l'autre.
  */
-const HEDGE_DELAY_MS = 600;
-/** Budget total d'une recherche, toutes sources confondues. Au-delà, on abandonne proprement. */
-const LOOKUP_DEADLINE_MS = 12_000;
+const PREFERENCE_GRACE_MS = 250;
+/**
+ * Budget total d'une recherche, toutes sources confondues. Les sources étant
+ * parallèles, ce plafond n'est atteint que si tout traîne.
+ */
+const LOOKUP_DEADLINE_MS = 8_000;
 
 /** Un morceau retrouvé est mis en cache 30 jours : une pochette ne change pas. */
 const HIT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -87,6 +105,13 @@ const DEFINITIVE_MISS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  * pochette apparaisse peu après le retour de la connexion.
  */
 const TRANSIENT_MISS_TTL_MS = 90 * 1000;
+/**
+ * Échec PARTIEL (certaines sources ont répondu « inconnu », d'autres n'ont pas
+ * répondu) : 30 minutes. Plus on a de sources, plus il est probable que l'une
+ * d'elles soit indisponible : on ne veut ni retenter à chaque tour, ni
+ * condamner le morceau pour 7 jours sur la foi d'une enquête incomplète.
+ */
+const PARTIAL_MISS_TTL_MS = 30 * 60 * 1000;
 
 const MAX_ENTRIES = 1000;
 
@@ -94,6 +119,8 @@ const MAX_ENTRIES = 1000;
 const ITUNES_MAX_CALLS_PER_MIN = 15;
 const DEEZER_MIN_INTERVAL_MS = 200;
 const MUSICBRAINZ_MIN_INTERVAL_MS = 1100; // MusicBrainz impose 1 req/s
+/** Groupes de sorties testés en parallèle sur Cover Art Archive, par enregistrement. */
+const MAX_RELEASE_GROUPS_PER_RECORDING = 4;
 
 /** Seuils de vérification du résultat (voir isPlausibleMatch). */
 const TITLE_SIMILARITY_THRESHOLD = 0.6;
@@ -103,7 +130,13 @@ const ARTIST_SIMILARITY_THRESHOLD = 0.45;
 // Types publics
 // ---------------------------------------------------------------------------
 
-export type ArtworkSource = "itunes" | "deezer" | "coverartarchive" | "none";
+export type ArtworkSource =
+  | "itunes"
+  | "deezer"
+  | "listenbrainz"
+  | "coverartarchive"
+  | "audius"
+  | "none";
 
 export interface ArtworkLookupResult {
   url: string | null;
@@ -147,6 +180,11 @@ interface SourceMatch {
   title: string;
 }
 
+/** Prochain créneau autorisé (ms epoch) d'une source limitée en débit. */
+interface RateGate {
+  next: number;
+}
+
 /** Issue d'un appel réseau : distingue "a répondu, rien trouvé" de "n'a pas répondu". */
 type FetchOutcome = { ok: true; data: unknown } | { ok: false };
 
@@ -159,8 +197,8 @@ const cache = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<ArtworkLookupResult>>();
 
 const itunesCallTimestamps: number[] = [];
-let lastDeezerCall = 0;
-let lastMusicBrainzCall = 0;
+const deezerGate: RateGate = { next: 0 };
+const musicBrainzGate: RateGate = { next: 0 };
 
 let persistPath: string | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -461,25 +499,79 @@ export function isPlausibleMatch(candidate: QueryCandidate, match: SourceMatch):
 // Réseau
 // ---------------------------------------------------------------------------
 
-async function fetchJson(url: string): Promise<FetchOutcome> {
+/**
+ * Signal d'une requête : timeout propre + annulation par le parent. Quand une
+ * source a gagné la course, les requêtes des autres sont annulées pour de
+ * bon (pas seulement ignorées) : moins de charge chez eux, et surtout aucun
+ * créneau MusicBrainz gaspillé.
+ */
+function requestSignal(parent?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  if (!parent) return timeout;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (parent.aborted || timeout.aborted) abort();
+  parent.addEventListener("abort", abort, { once: true });
+  timeout.addEventListener("abort", abort, { once: true });
+  return controller.signal;
+}
+
+async function fetchJson(url: string, signal?: AbortSignal): Promise<FetchOutcome> {
   try {
     const res = await fetch(url, {
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: requestSignal(signal),
       headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
     });
+    // 404 = la source a répondu « je ne connais pas ça » (ListenBrainz, Audius…).
+    // Ce n'est pas une panne : sinon chaque morceau inconnu serait traité
+    // comme un échec transitoire et re-cherché sans fin.
+    if (res.status === 404) return { ok: true, data: null };
     if (!res.ok) return { ok: false };
     // iTunes renvoie parfois text/javascript : on parse le texte nous-mêmes.
     const text = await res.text();
     return { ok: true, data: JSON.parse(text) };
   } catch {
-    // Réseau coupé, timeout, DNS, JSON invalide : échec TRANSITOIRE.
+    // Réseau coupé, timeout, annulation, DNS, JSON invalide : échec TRANSITOIRE.
     // La pochette est un bonus visuel, jamais un bloquant.
     return { ok: false };
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/** Attente interruptible : se termine tout de suite si le signal est annulé. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    }
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
+/**
+ * Réserve le prochain créneau d'une source limitée en débit et renvoie le
+ * délai à attendre (0 si libre). La réservation est synchrone : avec des
+ * recherches parallèles, deux appelants ne peuvent pas obtenir le même
+ * créneau (l'ancien « mesurer puis dormir » les laissait partir ensemble).
+ */
+export function reserveSlot(gate: RateGate, minIntervalMs: number, now = Date.now()): number {
+  const at = Math.max(now, gate.next);
+  gate.next = at + minIntervalMs;
+  return at - now;
+}
+
+/** Attend son créneau. Renvoie false si la recherche a été annulée entre-temps. */
+async function waitForSlot(
+  gate: RateGate,
+  minIntervalMs: number,
+  signal: AbortSignal
+): Promise<boolean> {
+  const wait = reserveSlot(gate, minIntervalMs);
+  if (wait > 0) await sleep(wait, signal);
+  return !signal.aborted;
 }
 
 function itunesRateLimitOk(): boolean {
@@ -495,6 +587,38 @@ export function upscaleItunesArtwork(url: string, size = 600): string {
   return url.replace(/\/\d+x\d+bb\.(jpg|png)$/i, `/${size}x${size}bb.$1`);
 }
 
+type CoverCheck = "ok" | "missing" | "error";
+
+/**
+ * Cover Art Archive renvoie 404 quand aucune pochette n'a été déposée : on
+ * vérifie avant de renvoyer une URL qui casserait l'image dans OBS.
+ */
+async function checkCover(url: string, signal: AbortSignal): Promise<CoverCheck> {
+  try {
+    const res = await fetch(url, {
+      method: "HEAD",
+      redirect: "follow",
+      signal: requestSignal(signal),
+      headers: { "User-Agent": USER_AGENT },
+    });
+    if (res.ok) return "ok";
+    return res.status >= 500 || res.status === 429 ? "error" : "missing";
+  } catch {
+    return "error";
+  }
+}
+
+/** Teste plusieurs URLs en parallèle et garde la première valide, dans l'ordre donné. */
+async function firstReachableCover(
+  urls: string[],
+  signal: AbortSignal
+): Promise<{ url: string | null; failed: boolean }> {
+  const checks = await Promise.all(urls.map((u) => checkCover(u, signal)));
+  const index = checks.indexOf("ok");
+  if (index >= 0) return { url: urls[index], failed: false };
+  return { url: null, failed: checks.includes("error") };
+}
+
 // ---------------------------------------------------------------------------
 // Sources
 // ---------------------------------------------------------------------------
@@ -506,20 +630,23 @@ interface SourceAttempt {
   failed: boolean;
 }
 
-async function searchItunes(candidate: QueryCandidate): Promise<SourceAttempt> {
-  if (!itunesRateLimitOk()) return { match: null, failed: true };
+const NO_MATCH: SourceAttempt = { match: null, failed: false };
+const FAILED: SourceAttempt = { match: null, failed: true };
+
+async function searchItunes(candidate: QueryCandidate, signal: AbortSignal): Promise<SourceAttempt> {
+  if (!itunesRateLimitOk()) return FAILED;
   itunesCallTimestamps.push(Date.now());
 
   const term = `${candidate.artist} ${candidate.title}`.trim();
   const url = `${ITUNES_ENDPOINT}?term=${encodeURIComponent(term)}&entity=song&media=music&limit=5`;
-  const outcome = await fetchJson(url);
-  if (!outcome.ok) return { match: null, failed: true };
+  const outcome = await fetchJson(url, signal);
+  if (!outcome.ok) return FAILED;
 
   const results =
     (
       outcome.data as {
         results?: { artworkUrl100?: string; trackName?: string; artistName?: string }[];
-      }
+      } | null
     )?.results ?? [];
 
   for (const item of results) {
@@ -531,56 +658,106 @@ async function searchItunes(candidate: QueryCandidate): Promise<SourceAttempt> {
     };
     if (isPlausibleMatch(candidate, match)) return { match, failed: false };
   }
-  return { match: null, failed: false };
+  return NO_MATCH;
 }
 
-async function searchDeezer(candidate: QueryCandidate): Promise<SourceAttempt> {
-  const since = Date.now() - lastDeezerCall;
-  if (since < DEEZER_MIN_INTERVAL_MS) await sleep(DEEZER_MIN_INTERVAL_MS - since);
-  lastDeezerCall = Date.now();
-
+async function searchDeezer(candidate: QueryCandidate, signal: AbortSignal): Promise<SourceAttempt> {
   // La syntaxe `artist:"..." track:"..."` est nettement plus précise qu'une
-  // recherche libre. Sans artiste, on retombe sur la recherche libre.
-  const query = candidate.artist
-    ? `artist:"${candidate.artist}" track:"${candidate.title}"`
-    : candidate.title;
-  const url = `${DEEZER_ENDPOINT}?q=${encodeURIComponent(query)}&limit=5`;
-  const outcome = await fetchJson(url);
-  if (!outcome.ok) return { match: null, failed: true };
+  // recherche libre, mais aussi très pointilleuse (ponctuation, « & »…) : si
+  // elle ne donne rien de fiable, on retente en recherche libre. Sans
+  // artiste, seule la recherche libre est possible.
+  const bare = (v: string) => v.replace(/"/g, " ").trim();
+  const queries = candidate.artist
+    ? [
+        `artist:"${bare(candidate.artist)}" track:"${bare(candidate.title)}"`,
+        `${candidate.artist} ${candidate.title}`,
+      ]
+    : [candidate.title];
 
-  const results =
-    (
-      outcome.data as {
-        data?: {
-          title?: string;
-          artist?: { name?: string };
-          album?: { cover_xl?: string; cover_big?: string; cover_medium?: string };
-        }[];
-      }
-    )?.data ?? [];
+  for (const query of queries) {
+    if (!(await waitForSlot(deezerGate, DEEZER_MIN_INTERVAL_MS, signal))) return FAILED;
+    const outcome = await fetchJson(`${DEEZER_ENDPOINT}?q=${encodeURIComponent(query)}&limit=5`, signal);
+    if (!outcome.ok) return FAILED;
 
-  for (const item of results) {
-    const cover = item.album?.cover_xl ?? item.album?.cover_big ?? item.album?.cover_medium;
-    if (!cover) continue;
-    const match: SourceMatch = {
-      url: cover,
-      artist: item.artist?.name ?? "",
-      title: item.title ?? "",
-    };
-    if (isPlausibleMatch(candidate, match)) return { match, failed: false };
+    const results =
+      (
+        outcome.data as {
+          data?: {
+            title?: string;
+            artist?: { name?: string };
+            album?: { cover_xl?: string; cover_big?: string; cover_medium?: string };
+          }[];
+        } | null
+      )?.data ?? [];
+
+    for (const item of results) {
+      const cover = item.album?.cover_xl ?? item.album?.cover_big ?? item.album?.cover_medium;
+      if (!cover) continue;
+      const match: SourceMatch = {
+        url: cover,
+        artist: item.artist?.name ?? "",
+        title: item.title ?? "",
+      };
+      if (isPlausibleMatch(candidate, match)) return { match, failed: false };
+    }
   }
-  return { match: null, failed: false };
+  return NO_MATCH;
 }
 
 /**
- * MusicBrainz (métadonnées) + Cover Art Archive (image). Deux requêtes et
- * 1 req/s imposée, d'où le dernier rang — mais c'est la seule source ouverte
- * qui couvre le catalogue non commercial.
+ * ListenBrainz : correspondance FLOUE (artiste, titre) -> enregistrement
+ * MusicBrainz, sans la limite de 1 req/s de MusicBrainz. Bien plus tolérant
+ * aux fautes et aux variantes de titre que la recherche Lucene de MusicBrainz.
+ * Renvoie l'identifiant de la sortie, dont on va chercher la pochette sur
+ * Cover Art Archive.
  */
-async function searchCoverArtArchive(candidate: QueryCandidate): Promise<SourceAttempt> {
-  const since = Date.now() - lastMusicBrainzCall;
-  if (since < MUSICBRAINZ_MIN_INTERVAL_MS) await sleep(MUSICBRAINZ_MIN_INTERVAL_MS - since);
-  lastMusicBrainzCall = Date.now();
+async function searchListenBrainz(
+  candidate: QueryCandidate,
+  signal: AbortSignal
+): Promise<SourceAttempt> {
+  // L'API exige les deux champs : sans artiste, on laisse les autres sources faire.
+  if (!candidate.artist) return NO_MATCH;
+
+  const url =
+    `${LISTENBRAINZ_ENDPOINT}?artist_name=${encodeURIComponent(candidate.artist)}` +
+    `&recording_name=${encodeURIComponent(candidate.title)}`;
+  const outcome = await fetchJson(url, signal);
+  if (!outcome.ok) return FAILED;
+
+  const data = outcome.data as {
+    recording_name?: string;
+    artist_credit_name?: string;
+    release_mbid?: string;
+  } | null;
+  if (!data?.release_mbid) return NO_MATCH;
+
+  const probe: SourceMatch = {
+    url: "",
+    artist: data.artist_credit_name ?? "",
+    title: data.recording_name ?? "",
+  };
+  if (!isPlausibleMatch(candidate, probe)) return NO_MATCH;
+
+  const cover = await firstReachableCover(
+    [`${COVERART_ENDPOINT}/release/${data.release_mbid}/front-500`],
+    signal
+  );
+  if (cover.url) return { match: { ...probe, url: cover.url }, failed: false };
+  return { match: null, failed: cover.failed };
+}
+
+/**
+ * MusicBrainz (métadonnées) + Cover Art Archive (image). 1 req/s imposée sur
+ * MusicBrainz, mais c'est la seule source ouverte qui couvre le catalogue non
+ * commercial. Un même enregistrement figure souvent sur plusieurs sorties
+ * (single, album, compilation) dont une partie seulement a une pochette : on
+ * teste donc chaque groupe de sorties, en parallèle, au lieu du seul premier.
+ */
+async function searchCoverArtArchive(
+  candidate: QueryCandidate,
+  signal: AbortSignal
+): Promise<SourceAttempt> {
+  if (!(await waitForSlot(musicBrainzGate, MUSICBRAINZ_MIN_INTERVAL_MS, signal))) return FAILED;
 
   const escape = (v: string) => v.replace(/["\\]/g, " ").trim();
   const clauses = [`recording:"${escape(candidate.title)}"`];
@@ -589,8 +766,8 @@ async function searchCoverArtArchive(candidate: QueryCandidate): Promise<SourceA
   const url = `${MUSICBRAINZ_ENDPOINT}?query=${encodeURIComponent(
     clauses.join(" AND ")
   )}&limit=5&fmt=json`;
-  const outcome = await fetchJson(url);
-  if (!outcome.ok) return { match: null, failed: true };
+  const outcome = await fetchJson(url, signal);
+  if (!outcome.ok) return FAILED;
 
   const recordings =
     (
@@ -600,8 +777,11 @@ async function searchCoverArtArchive(candidate: QueryCandidate): Promise<SourceA
           "artist-credit"?: { name?: string }[];
           releases?: { id?: string; "release-group"?: { id?: string } }[];
         }[];
-      }
+      } | null
     )?.recordings ?? [];
+
+  const checked = new Set<string>();
+  let failed = false;
 
   for (const rec of recordings) {
     const artist = (rec["artist-credit"] ?? [])
@@ -611,126 +791,203 @@ async function searchCoverArtArchive(candidate: QueryCandidate): Promise<SourceA
     const probe: SourceMatch = { url: "", artist, title: rec.title ?? "" };
     if (!isPlausibleMatch(candidate, probe)) continue;
 
-    const groupId = rec.releases?.find((r) => r["release-group"]?.id)?.["release-group"]?.id;
-    if (!groupId) continue;
+    const groupIds = [
+      ...new Set(
+        (rec.releases ?? []).map((r) => r["release-group"]?.id).filter((id): id is string => !!id)
+      ),
+    ]
+      .filter((id) => !checked.has(id))
+      .slice(0, MAX_RELEASE_GROUPS_PER_RECORDING);
+    if (!groupIds.length) continue;
+    groupIds.forEach((id) => checked.add(id));
 
-    // Cover Art Archive renvoie 404 quand aucune pochette n'a été déposée :
-    // on vérifie avant de renvoyer une URL qui casserait l'image dans OBS.
-    const coverUrl = `${COVERART_ENDPOINT}/release-group/${groupId}/front-500`;
-    try {
-      const head = await fetch(coverUrl, {
-        method: "HEAD",
-        redirect: "follow",
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        headers: { "User-Agent": USER_AGENT },
-      });
-      if (head.ok) return { match: { ...probe, url: coverUrl }, failed: false };
-    } catch {
-      return { match: null, failed: true };
-    }
+    const cover = await firstReachableCover(
+      groupIds.map((id) => `${COVERART_ENDPOINT}/release-group/${id}/front-500`),
+      signal
+    );
+    if (cover.url) return { match: { ...probe, url: cover.url }, failed: false };
+    failed = failed || cover.failed;
   }
-  return { match: null, failed: false };
+  return { match: null, failed };
 }
 
-/** Ordre d'interrogation. Déterministe, documenté en tête de fichier. */
-const SOURCES: {
+/**
+ * Audius : plateforme ouverte, sans clé (simple `app_name`). Couvre la
+ * musique indépendante et électronique absente des catalogues commerciaux.
+ * Catalogue d'uploads utilisateurs -> la vérification titre + artiste
+ * (isPlausibleMatch) est indispensable ici.
+ */
+async function searchAudius(candidate: QueryCandidate, signal: AbortSignal): Promise<SourceAttempt> {
+  const term = `${candidate.artist} ${candidate.title}`.trim();
+  const url =
+    `${AUDIUS_ENDPOINT}?query=${encodeURIComponent(term)}&limit=5` +
+    `&app_name=${encodeURIComponent(AUDIUS_APP_NAME)}`;
+  const outcome = await fetchJson(url, signal);
+  if (!outcome.ok) return FAILED;
+
+  const results =
+    (
+      outcome.data as {
+        data?: {
+          title?: string;
+          user?: { name?: string; handle?: string };
+          artwork?: Record<string, string | null> | null;
+        }[];
+      } | null
+    )?.data ?? [];
+
+  for (const item of results) {
+    const art = item.artwork;
+    const cover = art?.["480x480"] ?? art?.["1000x1000"] ?? art?.["150x150"];
+    if (!cover) continue;
+    const match: SourceMatch = {
+      url: cover,
+      artist: item.user?.name ?? item.user?.handle ?? "",
+      title: item.title ?? "",
+    };
+    if (isPlausibleMatch(candidate, match)) return { match, failed: false };
+  }
+  return NO_MATCH;
+}
+
+interface Source {
   id: Exclude<ArtworkSource, "none">;
-  search: (c: QueryCandidate) => Promise<SourceAttempt>;
-}[] = [
+  search: (candidate: QueryCandidate, signal: AbortSignal) => Promise<SourceAttempt>;
+}
+
+/**
+ * Toutes ces sources sont interrogées EN MÊME TEMPS. L'ordre ne sert qu'à
+ * départager deux réponses quasi simultanées (voir raceSources) : catalogues
+ * commerciaux d'abord (pochettes officielles, haute définition), puis
+ * catalogues ouverts.
+ */
+const SOURCES: Source[] = [
   { id: "itunes", search: searchItunes },
   { id: "deezer", search: searchDeezer },
+  { id: "listenbrainz", search: searchListenBrainz },
   { id: "coverartarchive", search: searchCoverArtArchive },
+  { id: "audius", search: searchAudius },
 ];
 
 // ---------------------------------------------------------------------------
 // Résolution
 // ---------------------------------------------------------------------------
 
+/**
+ * Nature d'un échec, qui règle la durée de mise en cache :
+ * - definitive : toutes les sources ont répondu, aucune ne connaît le morceau ;
+ * - partial    : certaines ont répondu « inconnu », d'autres n'ont pas répondu ;
+ * - transient  : aucune source n'a répondu (réseau coupé).
+ */
+type MissKind = "definitive" | "partial" | "transient";
+
 interface ResolveResult {
   url: string | null;
   source: ArtworkSource;
-  /**
-   * true quand toutes les sources ont bien répondu sans connaître le morceau.
-   * false quand au moins une n'a pas pu être interrogée (réseau, timeout) :
-   * dans ce cas l'échec ne doit pas être mis en cache longtemps.
-   */
-  definitive: boolean;
+  /** Renseigné uniquement quand `url` est null. */
+  miss?: MissKind;
+}
+
+interface SourceOutcome {
+  url: string | null;
+  source: ArtworkSource;
+  failed: boolean;
 }
 
 /**
- * Interroge une source sur ses candidats, du plus précis au plus permissif,
- * et s'arrête au premier résultat jugé fiable.
+ * Interroge UNE source sur ses candidats, du plus précis au plus permissif,
+ * et s'arrête au premier résultat jugé fiable. Les candidats restent en
+ * séquence : ils sont presque toujours dédoublonnés en 1 ou 2, et les lancer
+ * tous ensemble multiplierait les requêtes (et le quota iTunes) pour rien.
  */
 async function trySource(
-  source: (typeof SOURCES)[number],
+  source: Source,
+  candidates: QueryCandidate[],
+  deadline: number,
+  signal: AbortSignal
+): Promise<SourceOutcome> {
+  try {
+    for (const candidate of candidates) {
+      if (signal.aborted || Date.now() >= deadline) return { url: null, source: "none", failed: true };
+      const attempt = await source.search(candidate, signal);
+      if (attempt.match) return { url: attempt.match.url, source: source.id, failed: false };
+      // Source injoignable : inutile d'essayer ses autres candidats.
+      if (attempt.failed) return { url: null, source: "none", failed: true };
+    }
+    return { url: null, source: "none", failed: false };
+  } catch {
+    return { url: null, source: "none", failed: true };
+  }
+}
+
+/**
+ * Lance toutes les sources en parallèle. Le premier résultat fiable gagne et
+ * les requêtes encore en vol sont annulées.
+ *
+ * Une seule nuance : si la source qui répond en premier n'est pas la mieux
+ * classée et qu'une source mieux classée n'a pas encore répondu, on lui laisse
+ * PREFERENCE_GRACE_MS pour arriver. Ça garde des résultats stables d'un
+ * lancement à l'autre (iTunes l'emporte sur Deezer à ~50 ms d'écart) sans
+ * jamais coûter plus que ce délai.
+ */
+function raceSources(
   candidates: QueryCandidate[],
   deadline: number
-): Promise<{ url: string | null; source: ArtworkSource; failed: boolean }> {
-  for (const candidate of candidates) {
-    if (Date.now() >= deadline) return { url: null, source: "none", failed: true };
-    const attempt = await source.search(candidate);
-    if (attempt.match) return { url: attempt.match.url, source: source.id, failed: false };
-    // Source injoignable : inutile d'essayer ses autres candidats.
-    if (attempt.failed) return { url: null, source: "none", failed: true };
-  }
-  return { url: null, source: "none", failed: false };
+): Promise<{ hit: SourceOutcome | null; failures: number }> {
+  const controller = new AbortController();
+
+  return new Promise((resolve) => {
+    const outcomes: (SourceOutcome | undefined)[] = SOURCES.map(() => undefined);
+    let done = false;
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (graceTimer) clearTimeout(graceTimer);
+      clearTimeout(deadlineTimer);
+      controller.abort(); // annule ce qui est encore en vol
+      const hit = outcomes.find((o) => o?.url) ?? null;
+      // Une source qui n'a pas répondu à temps compte comme un échec.
+      const failures = outcomes.filter((o) => o === undefined || o.failed).length;
+      resolve({ hit, failures });
+    };
+
+    const evaluate = () => {
+      const best = outcomes.findIndex((o) => o?.url);
+      if (best === -1) {
+        if (outcomes.every((o) => o !== undefined)) finish();
+        return;
+      }
+      const betterPending = outcomes.slice(0, best).some((o) => o === undefined);
+      if (!betterPending) finish();
+      else if (!graceTimer) graceTimer = setTimeout(finish, PREFERENCE_GRACE_MS);
+    };
+
+    const deadlineTimer = setTimeout(finish, Math.max(0, deadline - Date.now()));
+
+    SOURCES.forEach((source, index) => {
+      void trySource(source, candidates, deadline, controller.signal).then((outcome) => {
+        if (done) return;
+        outcomes[index] = outcome;
+        evaluate();
+      });
+    });
+  });
 }
 
 async function resolve(rawArtist: string, rawTitle: string): Promise<ResolveResult> {
   const meta = normalizeMetadata(rawArtist, rawTitle);
-  if (!meta.title) return { url: null, source: "none", definitive: true };
+  if (!meta.title) return { url: null, source: "none", miss: "definitive" };
 
   const candidates = buildQueryCandidates(meta);
-  const deadline = Date.now() + LOOKUP_DEADLINE_MS;
+  const { hit, failures } = await raceSources(candidates, Date.now() + LOOKUP_DEADLINE_MS);
 
-  // --- Étage 1 : iTunes, puis Deezer en renfort ("hedged request") -------
-  // Le parallélisme brut réduit bien la latence, mais lance systématiquement
-  // une requête Deezer même quand iTunes répond en 200 ms — or iTunes suffit
-  // dans la majorité des cas. On donne donc une avance à iTunes : Deezer
-  // n'est lancé que si iTunes n'a pas encore répondu au bout de HEDGE_DELAY_MS.
-  // Résultat : latence quasi parallèle quand iTunes traîne, et aucune requête
-  // superflue quand il est rapide.
-  const itunes = SOURCES.find((s) => s.id === "itunes")!;
-  const deezer = SOURCES.find((s) => s.id === "deezer")!;
+  if (hit?.url) return { url: hit.url, source: hit.source };
 
-  const itunesRun = trySource(itunes, candidates, deadline);
-  const winner = await Promise.race([
-    itunesRun,
-    sleep(HEDGE_DELAY_MS).then(() => null as null),
-  ]);
-
-  if (winner?.url) return { url: winner.url, source: winner.source, definitive: true };
-
-  // Soit iTunes a répondu sans rien trouver, soit il traîne : dans les deux
-  // cas Deezer part maintenant, et on garde le résultat d'iTunes s'il arrive.
-  const [itunesResult, deezerResult] = await Promise.all([
-    itunesRun,
-    trySource(deezer, candidates, deadline),
-  ]);
-
-  // Ordre de préférence déterministe : iTunes l'emporte à égalité, quel que
-  // soit l'ordre d'arrivée des réponses.
-  for (const result of [itunesResult, deezerResult]) {
-    if (result.url) return { url: result.url, source: result.source, definitive: true };
-  }
-  let anyFailure = itunesResult.failed || deezerResult.failed;
-
-  // --- Étage 2 : Cover Art Archive, séquentiel ---------------------------
-  // Volontairement pas dans la course : MusicBrainz impose 1 req/s et
-  // demande deux allers-retours. On ne le paie que si les deux premières
-  // n'ont rien donné.
-  if (Date.now() < deadline) {
-    const caa = SOURCES.find((s) => s.id === "coverartarchive");
-    if (caa) {
-      const result = await trySource(caa, candidates, deadline);
-      if (result.url) return { url: result.url, source: result.source, definitive: true };
-      anyFailure = anyFailure || result.failed;
-    }
-  } else {
-    anyFailure = true;
-  }
-
-  return { url: null, source: "none", definitive: !anyFailure };
+  const miss: MissKind =
+    failures === 0 ? "definitive" : failures >= SOURCES.length ? "transient" : "partial";
+  return { url: null, source: "none", miss };
 }
 
 // ---------------------------------------------------------------------------
@@ -789,9 +1046,11 @@ function remember(key: string, result: ResolveResult): void {
   }
   const ttl = result.url
     ? HIT_TTL_MS
-    : result.definitive
+    : result.miss === "definitive"
       ? DEFINITIVE_MISS_TTL_MS
-      : TRANSIENT_MISS_TTL_MS;
+      : result.miss === "partial"
+        ? PARTIAL_MISS_TTL_MS
+        : TRANSIENT_MISS_TTL_MS;
 
   cache.set(key, { url: result.url, source: result.source, expiresAt: Date.now() + ttl });
   schedulePersist();
@@ -851,7 +1110,7 @@ export function __clearArtworkCache(): void {
   cache.clear();
   inFlight.clear();
   itunesCallTimestamps.length = 0;
-  lastDeezerCall = 0;
-  lastMusicBrainzCall = 0;
+  deezerGate.next = 0;
+  musicBrainzGate.next = 0;
   loaded = true; // évite de relire le disque pendant les tests
 }

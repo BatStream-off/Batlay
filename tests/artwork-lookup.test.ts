@@ -15,6 +15,7 @@ const {
   cleanTitle,
   upscaleItunesArtwork,
   similarity,
+  reserveSlot,
   __clearArtworkCache,
 } = await import("../electron/services/artwork-lookup");
 
@@ -52,6 +53,9 @@ function mockNetwork(handler: (url: string) => unknown): string[] {
   });
   return calls;
 }
+
+/** Appels réseau vers une source donnée (les sources partent en parallèle). */
+const callsTo = (calls: string[], host: string) => calls.filter((u) => u.includes(host));
 
 // --- Tests -----------------------------------------------------------------
 
@@ -177,8 +181,10 @@ describe("lookupArtwork", () => {
       source: "itunes",
       cached: false,
     });
-    expect(calls).toHaveLength(1);
+    // iTunes est interrogé en premier ; les autres sources partent en même temps.
+    expect(calls[0]).toContain("itunes");
     expect(calls[0]).toContain("Daft%20Punk%20Instant%20Crush");
+    expect(callsTo(calls, "itunes")).toHaveLength(1);
   });
 
   it("bascule sur Deezer quand iTunes ne trouve rien", async () => {
@@ -192,8 +198,8 @@ describe("lookupArtwork", () => {
 
     expect(result.source).toBe("deezer");
     expect(result.url).toBe("https://dzcdn.net/xl.jpg");
-    expect(calls[0]).toContain("itunes");
-    expect(calls.at(-1)).toContain("deezer");
+    expect(callsTo(calls, "itunes").length).toBeGreaterThan(0);
+    expect(callsTo(calls, "deezer").length).toBeGreaterThan(0);
   });
 
   it("bascule sur Cover Art Archive quand iTunes et Deezer échouent", async () => {
@@ -285,7 +291,7 @@ describe("lookupArtwork", () => {
 
     expect(first.cached).toBe(false);
     expect(second.cached).toBe(false);
-    expect(calls).toHaveLength(2);
+    expect(callsTo(calls, "itunes")).toHaveLength(2);
   });
 
   it("ne déclenche qu'une recherche pour plusieurs demandes simultanées", async () => {
@@ -308,7 +314,9 @@ describe("lookupArtwork", () => {
     open();
     const results = await pending;
 
-    expect(calls).toHaveLength(1);
+    // Une seule recherche, donc un seul appel par source (pas trois).
+    expect(callsTo(calls, "itunes")).toHaveLength(1);
+    expect(callsTo(calls, "audius")).toHaveLength(1);
     expect(results.every((r) => r.url === results[0].url && r.url)).toBe(true);
   });
 
@@ -317,5 +325,240 @@ describe("lookupArtwork", () => {
     const result = await lookupArtwork("Artiste", "   ");
     expect(result).toEqual({ url: null, source: "none", cached: false });
     expect(calls).toHaveLength(0);
+  });
+});
+
+
+// --- Nouvelles sources -----------------------------------------------------
+
+const audiusHit = (title: string, artist: string) =>
+  json({
+    data: [
+      {
+        title,
+        user: { name: artist },
+        artwork: { "150x150": "https://audius.test/150.jpg", "480x480": "https://audius.test/480.jpg" },
+      },
+    ],
+  });
+
+const listenbrainzHit = (title: string, artist: string, releaseMbid = "rel-1") =>
+  json({ recording_name: title, artist_credit_name: artist, release_mbid: releaseMbid });
+
+describe("sources supplémentaires", () => {
+  beforeEach(() => __clearArtworkCache());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("trouve une pochette sur Audius (musique indé absente des catalogues commerciaux)", async () => {
+    const calls = mockNetwork((url) =>
+      url.includes("audius") ? audiusHit("Night Drive", "Indie Producer") : EMPTY
+    );
+
+    const result = await lookupArtwork("Indie Producer", "Night Drive");
+
+    expect(result).toEqual({ url: "https://audius.test/480.jpg", source: "audius", cached: false });
+    expect(callsTo(calls, "audius")[0]).toContain("app_name=Batlay");
+  });
+
+  it("rejette un faux positif Audius (mauvais artiste)", async () => {
+    mockNetwork((url) => (url.includes("audius") ? audiusHit("Hello", "Random Uploader") : EMPTY));
+    const result = await lookupArtwork("Adele", "Hello");
+    expect(result.url).toBeNull();
+  });
+
+  it("trouve une pochette via ListenBrainz + Cover Art Archive", async () => {
+    const calls = mockNetwork((url) => {
+      if (url.includes("listenbrainz")) return listenbrainzHit("Obscure Track", "Petit Label");
+      if (url.startsWith("https://coverartarchive.org/release/")) return { ok: true }; // HEAD
+      return EMPTY;
+    });
+
+    const result = await lookupArtwork("Petit Label", "Obscure Track");
+
+    expect(result.source).toBe("listenbrainz");
+    expect(result.url).toBe("https://coverartarchive.org/release/rel-1/front-500");
+    expect(callsTo(calls, "listenbrainz")[0]).toContain("artist_name=Petit%20Label");
+  });
+
+  it("ListenBrainz : pas de pochette déposée sur la sortie => pas de résultat", async () => {
+    mockNetwork((url) => {
+      if (url.includes("listenbrainz")) return listenbrainzHit("Obscure Track", "Petit Label");
+      if (url.startsWith("https://coverartarchive.org/")) return { ok: false, status: 404 };
+      return EMPTY;
+    });
+    expect((await lookupArtwork("Petit Label", "Obscure Track")).url).toBeNull();
+  });
+
+  it("ListenBrainz n'est pas interrogé sans artiste (l'API l'exige)", async () => {
+    const calls = mockNetwork(() => EMPTY);
+    await lookupArtwork("", "Morceau Sans Artiste");
+    expect(callsTo(calls, "listenbrainz")).toHaveLength(0);
+  });
+
+  it("Cover Art Archive : essaie les autres groupes de sorties quand le premier n'a pas de pochette", async () => {
+    mockNetwork((url) => {
+      if (url.includes("musicbrainz")) {
+        return json({
+          recordings: [
+            {
+              title: "Obscure Track",
+              "artist-credit": [{ name: "Petit Label" }],
+              releases: [
+                { "release-group": { id: "compil-sans-pochette" } },
+                { "release-group": { id: "album-avec-pochette" } },
+              ],
+            },
+          ],
+        });
+      }
+      if (url.includes("compil-sans-pochette")) return { ok: false, status: 404 };
+      if (url.includes("album-avec-pochette")) return { ok: true };
+      return EMPTY;
+    });
+
+    const result = await lookupArtwork("Petit Label", "Obscure Track");
+
+    expect(result.source).toBe("coverartarchive");
+    expect(result.url).toBe("https://coverartarchive.org/release-group/album-avec-pochette/front-500");
+  });
+
+  it("Deezer : retombe sur la recherche libre quand la recherche stricte ne donne rien", async () => {
+    const calls = mockNetwork((url) => {
+      if (!url.includes("deezer")) return EMPTY;
+      // La requête stricte contient artist:"..." (encodé %3A) ; la libre non.
+      return url.includes("artist%3A") ? json({ data: [] }) : deezerHit("Formidable", "Stromae");
+    });
+
+    const result = await lookupArtwork("Stromae", "Formidable");
+
+    expect(result.source).toBe("deezer");
+    const deezerCalls = callsTo(calls, "deezer");
+    expect(deezerCalls).toHaveLength(2);
+    expect(deezerCalls[0]).toContain("artist%3A");
+    expect(deezerCalls[1]).toContain("q=Stromae%20Formidable");
+  });
+});
+
+// --- Parallélisme ----------------------------------------------------------
+
+describe("recherche en parallèle", () => {
+  beforeEach(() => __clearArtworkCache());
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** Réponse qui n'arrive qu'après `ms`, ou jamais si la requête est annulée. */
+  const after = (ms: number, response: unknown, signal?: AbortSignal) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => resolve(response), ms);
+      signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(new Error("aborted"));
+      });
+    });
+
+  it("lance toutes les sources sans attendre la plus lente, et renvoie dès qu'une répond", async () => {
+    const calls: string[] = [];
+    let itunesSignal: AbortSignal | undefined;
+    vi.stubGlobal("fetch", async (url: string, init?: { signal?: AbortSignal }) => {
+      calls.push(url);
+      if (url.includes("itunes")) {
+        itunesSignal = init?.signal;
+        return after(3000, EMPTY, init?.signal); // iTunes traîne
+      }
+      if (url.includes("deezer")) return deezerHit("Formidable", "Stromae");
+      return EMPTY;
+    });
+
+    const started = Date.now();
+    const result = await lookupArtwork("Stromae", "Formidable");
+    const elapsed = Date.now() - started;
+
+    expect(result.source).toBe("deezer");
+    // Deezer + délai de préférence, très loin des 3 s d'iTunes.
+    expect(elapsed).toBeLessThan(1200);
+    // Toutes les sources ont été sollicitées, sans attendre les précédentes.
+    for (const host of ["itunes", "deezer", "listenbrainz", "musicbrainz", "audius"]) {
+      expect(callsTo(calls, host).length, host).toBeGreaterThan(0);
+    }
+    // La requête iTunes encore en vol est annulée, pas seulement ignorée.
+    expect(itunesSignal?.aborted).toBe(true);
+  });
+
+  it("garde l'ordre de préférence quand deux sources répondent presque ensemble", async () => {
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (url.includes("itunes")) return after(80, itunesHit("Formidable", "Stromae"));
+      if (url.includes("deezer")) return deezerHit("Formidable", "Stromae"); // plus rapide
+      return EMPTY;
+    });
+
+    const result = await lookupArtwork("Stromae", "Formidable");
+
+    expect(result.source).toBe("itunes");
+  });
+
+  it("ne bloque pas sur une source en panne : les autres répondent", async () => {
+    mockNetwork((url) => {
+      if (url.includes("itunes") || url.includes("deezer")) throw new Error("ENOTFOUND");
+      if (url.includes("audius")) return audiusHit("Night Drive", "Indie Producer");
+      return EMPTY;
+    });
+    const result = await lookupArtwork("Indie Producer", "Night Drive");
+    expect(result.source).toBe("audius");
+  });
+});
+
+// --- Durée de mise en cache des échecs -------------------------------------
+
+describe("durée de mise en cache d'un échec", () => {
+  const realNow = Date.now.bind(Date);
+  beforeEach(() => __clearArtworkCache());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const minutesLater = (min: number) =>
+    vi.spyOn(Date, "now").mockReturnValue(realNow() + min * 60_000);
+
+  it("toutes les sources répondent « inconnu » (404 compris) : échec définitif, mis en cache longtemps", async () => {
+    mockNetwork((url) =>
+      url.includes("listenbrainz") || url.includes("audius") ? { ok: false, status: 404 } : EMPTY
+    );
+    await lookupArtwork("Moi", "Enregistrement Perso");
+
+    minutesLater(120);
+    expect((await lookupArtwork("Moi", "Enregistrement Perso")).cached).toBe(true);
+  });
+
+  it("une source n'a pas répondu : échec partiel, réessayé après ~30 min", async () => {
+    mockNetwork((url) => {
+      if (url.includes("audius")) throw new Error("panne Audius");
+      return EMPTY;
+    });
+    await lookupArtwork("Moi", "Enregistrement Perso");
+
+    minutesLater(10);
+    expect((await lookupArtwork("Moi", "Enregistrement Perso")).cached).toBe(true);
+    vi.restoreAllMocks();
+    minutesLater(40);
+    expect((await lookupArtwork("Moi", "Enregistrement Perso")).cached).toBe(false);
+  });
+
+  it("aucune source n'a répondu (réseau coupé) : échec transitoire, réessayé après 90 s", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("réseau indisponible")));
+    await lookupArtwork("Moi", "Enregistrement Perso");
+
+    minutesLater(3);
+    expect((await lookupArtwork("Moi", "Enregistrement Perso")).cached).toBe(false);
+  });
+});
+
+describe("limitation de débit (créneaux)", () => {
+  it("deux appelants simultanés n'obtiennent jamais le même créneau", () => {
+    const gate = { next: 0 };
+    expect(reserveSlot(gate, 1100, 10_000)).toBe(0);
+    expect(reserveSlot(gate, 1100, 10_000)).toBe(1100);
+    expect(reserveSlot(gate, 1100, 10_000)).toBe(2200);
+    // Après une pause, le débit repart de zéro.
+    expect(reserveSlot(gate, 1100, 20_000)).toBe(0);
   });
 });

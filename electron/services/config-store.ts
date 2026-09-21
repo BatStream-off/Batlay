@@ -1,5 +1,6 @@
 import Store from "electron-store";
 import { safeStorage, app } from "electron";
+import { DEFAULT_THEME_PREFERENCE, type ThemePreference } from "../shared/theme.js";
 
 /**
  * Stocke la configuration persistante de Batlay (overlays, settings,
@@ -18,7 +19,8 @@ export interface BatlayConfigSchema {
   settings: {
     launchOnStartup: boolean;
     startMinimized: boolean;
-    theme: "dark" | "light";
+    /** "dark" | "light" | "system" (suit Windows). Un ancien "dark" reste valide. */
+    theme: ThemePreference;
     language: "fr" | "en";
     overlayServerPort: number;
     /**
@@ -28,6 +30,8 @@ export interface BatlayConfigSchema {
      * (suit la session ayant le focus multimédia côté Windows).
      */
     preferredSystemMediaAppId: string | null;
+    /** Couleur des boutons choisie par l'utilisateur (hex `#rrggbb`). `null` = violet par défaut. */
+    accentColor: string | null;
   };
   spotify: {
     clientId: string | null;
@@ -41,10 +45,11 @@ const defaults: BatlayConfigSchema = {
   settings: {
     launchOnStartup: false,
     startMinimized: false,
-    theme: "dark",
+    theme: DEFAULT_THEME_PREFERENCE,
     language: "fr",
     overlayServerPort: 3000,
     preferredSystemMediaAppId: null,
+    accentColor: null,
   },
   spotify: {
     clientId: null,
