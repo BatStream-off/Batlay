@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { nanoid } from "nanoid";
 import type { OverlayConfig, PresetId } from "@/types/overlay";
 import { getPreset } from "@/presets";
+import { regenerateObsIds } from "@/utils/obs-link";
+import { rekeyUnsavedDrafts } from "@/utils/unsaved-drafts";
 
 export interface CreateOptions {
   /** Taille du canvas ; par défaut celle du preset. */
@@ -20,12 +22,40 @@ interface OverlayStoreState {
   remove: (id: string) => Promise<void>;
   duplicate: (id: string) => Promise<void>;
   rename: (id: string, name: string) => Promise<void>;
+  /** Nouveau lien OBS pour un overlay (l'ancien cesse de fonctionner). Renvoie l'overlay avec son nouvel id. */
+  regenerateObsLink: (id: string) => Promise<OverlayConfig | null>;
+  /** Nouveau lien OBS pour tous les overlays. Renvoie le nombre de liens régénérés. */
+  regenerateAllObsLinks: () => Promise<number>;
   setActive: (id: string | null) => Promise<void>;
   getById: (id: string) => OverlayConfig | undefined;
 }
 
 async function persist(overlays: OverlayConfig[]): Promise<void> {
   await window.batlay.config.saveOverlays(overlays as unknown[]);
+}
+
+/**
+ * Applique la régénération des liens puis la persiste. Le process principal
+ * reçoit la nouvelle liste (saveOverlays) : c'est là que l'ancien id est
+ * révoqué côté serveur, et que les sources OBS qui l'utilisaient sont
+ * déconnectées (voir OverlayServer.setOverlayConfigs).
+ */
+async function regenerate(
+  get: () => OverlayStoreState,
+  set: (partial: Partial<OverlayStoreState>) => void,
+  target: string[] | "all"
+): Promise<Map<string, string>> {
+  const { overlays, activeOverlayId } = get();
+  const result = regenerateObsIds(overlays, activeOverlayId, target, () => nanoid(10));
+  if (result.idMap.size === 0) return result.idMap;
+
+  set({ overlays: result.overlays, activeOverlayId: result.activeOverlayId });
+  rekeyUnsavedDrafts(result.idMap);
+  await persist(result.overlays);
+  if (result.activeOverlayId !== activeOverlayId) {
+    await window.batlay.config.setActiveOverlayId(result.activeOverlayId);
+  }
+  return result.idMap;
 }
 
 export const useOverlayStore = create<OverlayStoreState>((set, get) => ({
@@ -106,6 +136,14 @@ export const useOverlayStore = create<OverlayStoreState>((set, get) => ({
     set({ activeOverlayId: id });
     await window.batlay.config.setActiveOverlayId(id);
   },
+
+  regenerateObsLink: async (id) => {
+    const idMap = await regenerate(get, set, [id]);
+    const newId = idMap.get(id);
+    return newId ? (get().overlays.find((o) => o.id === newId) ?? null) : null;
+  },
+
+  regenerateAllObsLinks: async () => (await regenerate(get, set, "all")).size,
 
   getById: (id) => get().overlays.find((o) => o.id === id),
 }));

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, Copy, Download, Link2, Pencil, Plus, Star, Trash2 } from "lucide-react";
+import { Check, Copy, Download, Link2, Pencil, Plus, RefreshCw, Star, Trash2 } from "lucide-react";
 import { useOverlayStore } from "@/stores/useOverlayStore";
 import { useToastStore } from "@/stores/useToastStore";
 import { useCopyObsUrl } from "@/hooks/useCopyObsUrl";
@@ -9,6 +9,7 @@ import { CANVAS_SIZES } from "@/utils/overlay-model";
 import { formatRelativeDate, pickMainOverlay } from "@/utils/ui-helpers";
 import type { OverlayConfig, PresetId } from "@/types/overlay";
 import { OverlayPreview } from "@/components/OverlayPreview";
+import { RegenerateObsLinkModal } from "@/components/RegenerateObsLinkModal";
 import { Button, DropdownMenu, Modal, PageHeader, StatusPill } from "@/components/ui";
 
 const PRESET_LABELS: Record<PresetId, string> = {
@@ -30,18 +31,20 @@ const clampDimension = (n: number, fallback: number) =>
 
 export function Overlays() {
   const navigate = useNavigate();
-  const { overlays, activeOverlayId, create, remove, duplicate, setActive } = useOverlayStore((s) => ({
+  const { overlays, activeOverlayId, create, remove, duplicate, setActive, regenerateObsLink } = useOverlayStore((s) => ({
     overlays: s.overlays,
     activeOverlayId: s.activeOverlayId,
     create: s.create,
     remove: s.remove,
     duplicate: s.duplicate,
     setActive: s.setActive,
+    regenerateObsLink: s.regenerateObsLink,
   }));
   const push = useToastStore((s) => s.push);
   const copyObsUrl = useCopyObsUrl();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmRegenerateId, setConfirmRegenerateId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [blankOpen, setBlankOpen] = useState(false);
   const [blankWidth, setBlankWidth] = useState(800);
@@ -104,7 +107,20 @@ export function Overlays() {
     push(`« ${overlay.name} » est maintenant l'overlay principal`, "success");
   }
 
+  async function handleRegenerate(overlay: OverlayConfig) {
+    try {
+      const renewed = await regenerateObsLink(overlay.id);
+      if (!renewed) return;
+      push(`Lien OBS de « ${overlay.name} » régénéré : l'ancien ne fonctionne plus.`, "success");
+      // Le nouveau lien est ce dont l'utilisateur a besoin tout de suite : on le copie.
+      await copyObsUrl(renewed.id);
+    } catch (err) {
+      push((err as Error).message || "Impossible de régénérer le lien OBS.", "error");
+    }
+  }
+
   const toDelete = overlays.find((o) => o.id === confirmDeleteId);
+  const toRegenerate = overlays.find((o) => o.id === confirmRegenerateId);
 
   return (
     <div className="mx-auto max-w-5xl px-8 py-10">
@@ -178,6 +194,7 @@ export function Overlays() {
                           : [{ label: "Définir comme principal", icon: <Check size={14} />, onClick: () => void handleSetMain(overlay) }]),
                         { label: "Dupliquer", icon: <Copy size={14} />, onClick: () => void handleDuplicate(overlay) },
                         { label: "Exporter (.json)", icon: <Download size={14} />, onClick: () => handleExport(overlay) },
+                        { label: "Régénérer le lien OBS", icon: <RefreshCw size={14} />, onClick: () => setConfirmRegenerateId(overlay.id) },
                         { label: "Supprimer", icon: <Trash2 size={14} />, danger: true, onClick: () => setConfirmDeleteId(overlay.id) },
                       ]}
                     />
@@ -271,6 +288,17 @@ export function Overlays() {
             </div>
           )}
         </Modal>
+      )}
+
+      {toRegenerate && (
+        <RegenerateObsLinkModal
+          overlayName={toRegenerate.name}
+          onClose={() => setConfirmRegenerateId(null)}
+          onConfirm={() => {
+            setConfirmRegenerateId(null);
+            void handleRegenerate(toRegenerate);
+          }}
+        />
       )}
 
       {toDelete && (

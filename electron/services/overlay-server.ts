@@ -69,6 +69,13 @@ export class OverlayServer {
         ws.close(1008, "overlayId manquant");
         return;
       }
+      // Sans ce refus, une source OBS dont le lien a été régénéré (ou dont
+      // l'overlay a été supprimé) se reconnecterait toutes les 2 s (voir
+      // overlay/OverlayApp.tsx) et continuerait de recevoir l'état de lecture.
+      if (!this.overlayConfigs.has(overlayId)) {
+        ws.close(1008, "Overlay inconnu ou lien OBS révoqué");
+        return;
+      }
       this.registerClient(overlayId, ws);
       // Envoi immédiat de l'état actuel pour éviter un overlay vide au chargement
       ws.send(this.buildStateMessage(this.lastState));
@@ -124,6 +131,10 @@ export class OverlayServer {
    * /api/overlays/:id, et POUSSE aux overlays déjà ouverts dans OBS ceux dont
    * la configuration a changé : un "Save" dans l'éditeur se voit
    * immédiatement à l'antenne, sans recharger la Browser Source.
+   *
+   * Un id qui disparaît de la liste (overlay supprimé, lien OBS régénéré) est
+   * révoqué : ses sources OBS sont déconnectées, et ne pourront pas revenir
+   * (voir le refus dans le handler "connection").
    */
   setOverlayConfigs(overlays: { id: string }[]): void {
     const previousJson = this.overlayConfigJson;
@@ -137,6 +148,13 @@ export class OverlayServer {
       for (const ws of this.clientsByOverlay.get(overlay.id) ?? []) {
         if (ws.readyState === WebSocket.OPEN) ws.send(message);
       }
+    }
+
+    // Supprimer pendant l'itération d'une Map est sans danger en JavaScript.
+    for (const [overlayId, clients] of this.clientsByOverlay) {
+      if (this.overlayConfigs.has(overlayId)) continue;
+      for (const ws of clients) ws.close(1008, "Lien OBS révoqué");
+      this.clientsByOverlay.delete(overlayId);
     }
   }
 

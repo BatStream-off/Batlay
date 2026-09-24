@@ -1,7 +1,7 @@
 {
   "name": "batlay",
   "productName": "Batlay",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Batlay - Application desktop d'overlay musical pour le streaming (OBS)",
   "author": "Adil",
   "main": "dist-electron/main/index.js",

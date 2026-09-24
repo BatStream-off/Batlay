@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
+import { RefreshCw } from "lucide-react";
 import { useSettingsStore } from "@/stores/useSettingsStore";
+import { useOverlayStore } from "@/stores/useOverlayStore";
 import { useToastStore } from "@/stores/useToastStore";
 import { ColorField } from "@/components/editor/fields";
-import { PageHeader, StatusPill } from "@/components/ui";
+import { Button, PageHeader, StatusPill } from "@/components/ui";
+import { RegenerateObsLinkModal } from "@/components/RegenerateObsLinkModal";
 import { DEFAULT_ACCENT_HEX } from "@/theme/accent";
 import { validatePort } from "@/utils/ui-helpers";
 import type { ThemePreference } from "../../electron/shared/theme";
@@ -21,6 +24,11 @@ export function Settings() {
     update: s.update,
   }));
   const push = useToastStore((s) => s.push);
+  const { overlayCount, regenerateAllObsLinks } = useOverlayStore((s) => ({
+    overlayCount: s.overlays.length,
+    regenerateAllObsLinks: s.regenerateAllObsLinks,
+  }));
+  const [confirmRegenerateAll, setConfirmRegenerateAll] = useState(false);
 
   // Le port se saisit dans un texte local et n'est enregistré qu'à la validation
   // (Entrée / sortie du champ) : avant, chaque frappe était enregistrée — taper
@@ -50,6 +58,18 @@ export function Settings() {
     if (result.port === savedPort) return;
     await update({ overlayServerPort: result.port });
     push("Port enregistré : redémarrez Batlay pour l'appliquer.", "info");
+  }
+
+  async function handleRegenerateAll() {
+    try {
+      const count = await regenerateAllObsLinks();
+      push(
+        `${count} lien${count > 1 ? "s" : ""} OBS régénéré${count > 1 ? "s" : ""} : recopiez-les dans OBS (Mes overlays > URL OBS).`,
+        "success"
+      );
+    } catch (err) {
+      push((err as Error).message || "Impossible de régénérer les liens OBS.", "error");
+    }
   }
 
   return (
@@ -151,14 +171,37 @@ export function Settings() {
             Un changement de port nécessite de redémarrer Batlay, et les URL déjà collées dans OBS devront être mises à jour.
           </p>
         )}
+
+        <div className="mt-4 flex items-center justify-between gap-4 border-t border-line pt-4">
+          <div className="min-w-0">
+            <p className="text-sm text-fg">Liens OBS</p>
+            <p className="mt-0.5 text-xs text-muted">
+              Crée de nouveaux liens pour tous vos overlays. Les anciens cessent de fonctionner (lien partagé par erreur, source OBS à réinitialiser...).
+            </p>
+          </div>
+          <Button size="sm" disabled={overlayCount === 0} onClick={() => setConfirmRegenerateAll(true)}>
+            <RefreshCw size={14} /> Régénérer
+          </Button>
+        </div>
       </section>
 
       <section className="mt-4 rounded-xl2 border border-line bg-base-900 p-6">
         <h2 className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">À propos</h2>
         <p className="text-sm text-fg">Batlay</p>
-        <p className="text-xs text-muted">Version 0.1.0</p>
+        <p className="text-xs text-muted">Version 0.1.1</p>
         <p className="text-xs text-muted">Créateur : Adilbl</p>
       </section>
+
+      {confirmRegenerateAll && (
+        <RegenerateObsLinkModal
+          count={overlayCount}
+          onClose={() => setConfirmRegenerateAll(false)}
+          onConfirm={() => {
+            setConfirmRegenerateAll(false);
+            void handleRegenerateAll();
+          }}
+        />
+      )}
     </div>
   );
 }

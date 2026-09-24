@@ -24,6 +24,7 @@ import type {
 } from "@/types/overlay";
 import type { ProgressReader } from "@/utils/progress-clock";
 import { ZOOM_STEPS, clampZoom, stepZoom } from "@/utils/ui-helpers";
+import { unsavedDrafts } from "@/utils/unsaved-drafts";
 import {
   addComponent,
   alignInCanvas,
@@ -33,13 +34,6 @@ import {
   reorderTo,
   type AlignKind,
 } from "@/utils/overlay-model";
-
-/**
- * Brouillons non enregistrés, conservés le temps de la session : quitter
- * l'éditeur (menu latéral...) puis y revenir ne fait plus perdre le travail.
- * Un brouillon n'est réutilisé que si l'overlay n'a pas été modifié depuis.
- */
-const unsavedDrafts = new Map<string, { draft: OverlayConfig; baseUpdatedAt: number }>();
 
 /** Supprime les clés `undefined` (une propriété retirée doit disparaître du JSON, pas rester à undefined). */
 function cleanStyle(style: ComponentStyle): ComponentStyle {

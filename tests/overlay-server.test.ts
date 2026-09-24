@@ -27,6 +27,8 @@ function open(id: string): Promise<{ ws: WebSocket; messages: any[] }> {
   });
 }
 const tick = (ms = 80) => new Promise((r) => setTimeout(r, ms));
+/** Code de fermeture d'une connexion (1008 = refusée / révoquée par le serveur). */
+const closeCode = (ws: WebSocket) => new Promise<number>((resolve) => ws.once("close", (code) => resolve(code)));
 
 // PNG 1×1 valide
 const PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -91,6 +93,32 @@ describe("OverlayServer", () => {
     await tick();
     expect(messages.length).toBe(count);
     ws.close();
+  });
+
+  it("refuse la connexion WebSocket d'un overlay inconnu", async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws/inconnu`);
+    expect(await closeCode(ws)).toBe(1008);
+  });
+
+  it("révoque l'ancien lien OBS : source déconnectée, id refusé, config introuvable", async () => {
+    server.setOverlayConfigs([{ id: "o1" }, { id: "avant" }]);
+    const { ws } = await open("avant");
+    const closed = closeCode(ws);
+
+    // Régénération du lien : même overlay, nouvel id.
+    server.setOverlayConfigs([{ id: "o1" }, { id: "apres" }]);
+    expect(await closed).toBe(1008);
+
+    // L'ancienne source qui tente de se reconnecter (voir overlay/OverlayApp.tsx) est refusée.
+    expect(await closeCode(new WebSocket(`ws://127.0.0.1:${PORT}/ws/avant`))).toBe(1008);
+    expect((await fetch(`http://127.0.0.1:${PORT}/api/overlays/avant`)).status).toBe(404);
+
+    // Le nouveau lien, lui, fonctionne et reçoit l'état.
+    const fresh = await open("apres");
+    await tick();
+    expect(fresh.messages.some((m) => m.type === "state")).toBe(true);
+    expect((await fetch(`http://127.0.0.1:${PORT}/api/overlays/apres`)).status).toBe(200);
+    fresh.ws.close();
   });
 
   it("404 sur une pochette inconnue", async () => {
