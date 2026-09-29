@@ -3,16 +3,12 @@
 Toutes les évolutions notables de Batlay. Le numéro de version suit `package.json`
 (vérifié par `tests/version.test.ts`).
 
-<<<<<<< HEAD
 ## 0.3.0
 
 ### Ajouté (mises à jour)
 - **Paramètres → Mises à jour** : recherche, téléchargement puis « Installer et redémarrer » depuis les Releases GitHub
   (`electron-updater`), pastille dans la barre latérale, recherche discrète au démarrage. Voir README §13.
 - Workflow GitHub Actions de publication ; l'installateur s'appelle désormais `Batlay-Setup-<version>.exe`.
-=======
-## 0.2.0
->>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
 
 ### Amélioré (graphisme)
 - **Polices embarquées** (Inter, Space Grotesk, JetBrains Mono via `@fontsource-variable/*`) : elles n'étaient
@@ -25,11 +21,8 @@ Toutes les évolutions notables de Batlay. Le numéro de version suit `package.j
 - **Tableau de bord** : carte « En cours de lecture » teintée par la pochette floutée, titre en grand,
   barre de progression lumineuse, égaliseur animé.
 - Modales (flou d'arrière-plan), menus et notifications (icônes) animés ; entrée échelonnée des pages.
-<<<<<<< HEAD
 - **Nouvelle icône** : chauve-souris avec une note de musique (`assets/icon.svg`, `icon.png`, `icon.ico`),
   utilisée comme icône de l’application ; la barre latérale garde les trois barres d’égaliseur animées.
-=======
->>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
 - Animations désactivées avec « Réduire les animations » de Windows. Aucun token de couleur modifié.
 
 ### Ajouté

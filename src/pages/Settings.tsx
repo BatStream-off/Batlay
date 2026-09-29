@@ -1,16 +1,9 @@
 import { useEffect, useState } from "react";
-<<<<<<< HEAD
 import { ArrowUpCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useOverlayStore } from "@/stores/useOverlayStore";
 import { useToastStore } from "@/stores/useToastStore";
 import { useUpdateStore } from "@/stores/useUpdateStore";
-=======
-import { RefreshCw } from "lucide-react";
-import { useSettingsStore } from "@/stores/useSettingsStore";
-import { useOverlayStore } from "@/stores/useOverlayStore";
-import { useToastStore } from "@/stores/useToastStore";
->>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
 import { ColorField } from "@/components/editor/fields";
 import { Button, PageHeader, SectionTitle, StatusPill } from "@/components/ui";
 import { RegenerateObsLinkModal } from "@/components/RegenerateObsLinkModal";
@@ -193,19 +186,12 @@ export function Settings() {
         </div>
       </section>
 
-<<<<<<< HEAD
       <UpdateSection />
 
       <section className="mt-4 card p-6">
         <SectionTitle className="mb-2">À propos</SectionTitle>
         <p className="text-sm text-fg">Batlay</p>
         <p className="text-xs text-muted">Version 0.3.0</p>
-=======
-      <section className="mt-4 card p-6">
-        <SectionTitle className="mb-2">À propos</SectionTitle>
-        <p className="text-sm text-fg">Batlay</p>
-        <p className="text-xs text-muted">Version 0.2.0</p>
->>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
         <p className="text-xs text-muted">Créateur : Adilbl</p>
       </section>
 
@@ -223,7 +209,6 @@ export function Settings() {
   );
 }
 
-<<<<<<< HEAD
 /** « Mises à jour » : recherche sur GitHub, puis téléchargement et installation en deux clics. */
 function UpdateSection() {
   const { status, version, check, download, install, openReleases } = useUpdateStore((s) => ({
@@ -345,8 +330,6 @@ function UpdateSection() {
   );
 }
 
-=======
->>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
 function Toggle({
   label,
   hint,

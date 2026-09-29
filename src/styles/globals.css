@@ -186,15 +186,12 @@
   .eq-bar:nth-child(3) { animation-delay: -0.7s; animation-duration: 1.15s; }
   .eq-paused .eq-bar { animation: none; }
 
-<<<<<<< HEAD
   /* ---------- Chauve-souris : battement d'ailes ---------- */
   .bat-flap {
     transform-origin: 50% 60%;
     animation: bat-flap 0.9s ease-in-out infinite;
   }
 
-=======
->>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
   /* ---------- Entrées en scène ---------- */
   .page-enter {
     animation: fade-in 0.3s ease-out;
@@ -236,13 +233,10 @@
 @keyframes ping-soft {
   75%, 100% { transform: scale(2.4); opacity: 0; }
 }
-<<<<<<< HEAD
 @keyframes bat-flap {
   0%, 100% { transform: scale(1, 1); }
   50% { transform: scale(0.92, 1.08); }
 }
-=======
->>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
 @keyframes eq {
   0%, 100% { transform: scaleY(0.35); }
   50% { transform: scaleY(1); }
@@ -256,12 +250,8 @@
   .menu-pop,
   .toast-in,
   .dot-live::after,
-<<<<<<< HEAD
   .eq-bar,
   .bat-flap {
-=======
-  .eq-bar {
->>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
     animation: none !important;
   }
   .card-hover:hover {
