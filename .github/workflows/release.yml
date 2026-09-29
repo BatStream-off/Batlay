@@ -1,0 +1,30 @@
+# Publie une version Windows sur GitHub quand on pousse un tag « v* » (ex. v0.3.0).
+# electron-builder envoie l'installateur ET latest.yml : c'est ce fichier que
+# la recherche de mise à jour de Batlay lit.
+#
+#   1. changez "version" dans package.json (et package-lock.json, et « Version x.y.z » dans Settings.tsx)
+#   2. git commit, puis : git tag v0.3.0 && git push --tags
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm install
+      - run: npm test
+      - run: npm run build
+      - run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
