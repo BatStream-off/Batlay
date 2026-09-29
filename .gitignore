@@ -1,5 +1,14 @@
 node_modules/
+<<<<<<< HEAD
 dist/
 dist-electron/
 release/
 *.tsbuildinfo
+=======
+release/
+dist/
+*.exe
+.env
+*.pfx
+*.p12
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e

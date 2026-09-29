@@ -1,9 +1,16 @@
 import { Link, NavLink, useLocation } from "react-router-dom";
+<<<<<<< HEAD
 import { ArrowUpCircle, Link2, LayoutDashboard, Layers, PanelLeftClose, PanelLeftOpen, Plug, SlidersHorizontal } from "lucide-react";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useMusicStore } from "@/stores/useMusicStore";
 import { useOverlayStore } from "@/stores/useOverlayStore";
 import { useUpdateStore } from "@/stores/useUpdateStore";
+=======
+import { Link2, LayoutDashboard, Layers, PanelLeftClose, PanelLeftOpen, Plug, SlidersHorizontal } from "lucide-react";
+import { useSettingsStore } from "@/stores/useSettingsStore";
+import { useMusicStore } from "@/stores/useMusicStore";
+import { useOverlayStore } from "@/stores/useOverlayStore";
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
 import { useCopyObsUrl } from "@/hooks/useCopyObsUrl";
 import { pickMainOverlay } from "@/utils/ui-helpers";
 
@@ -33,9 +40,12 @@ export function Sidebar({ compact, onToggleCompact }: SidebarProps) {
   const activeProviderId = useMusicStore((s) => s.activeProviderId);
   const { overlays, activeOverlayId } = useOverlayStore((s) => ({ overlays: s.overlays, activeOverlayId: s.activeOverlayId }));
   const isPlaying = useMusicStore((s) => s.playbackState.track?.isPlaying ?? false);
+<<<<<<< HEAD
   const updateStatus = useUpdateStore((s) => s.status);
   const updateReady = updateStatus.state === "available" || updateStatus.state === "downloaded";
   const updateVersion = updateStatus.state === "available" || updateStatus.state === "downloaded" ? updateStatus.version : "";
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
   const copyObsUrl = useCopyObsUrl();
   const mainOverlay = pickMainOverlay(overlays, activeOverlayId);
 
@@ -52,7 +62,11 @@ export function Sidebar({ compact, onToggleCompact }: SidebarProps) {
             className="btn-primary flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
             aria-hidden="true"
           >
+<<<<<<< HEAD
             {/* Trois barres d'égaliseur : elles dansent quand un morceau est en lecture. */}
+=======
+            {/* Les barres dansent quand un morceau est en lecture. */}
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
             <svg viewBox="0 0 16 16" className={`h-[18px] w-[18px] ${isPlaying ? "" : "eq-paused"}`} fill="currentColor">
               <rect className="eq-bar" x="2" y="7" width="2.5" height="7" rx="1.25" />
               <rect className="eq-bar" x="6.75" y="2" width="2.5" height="12" rx="1.25" />
@@ -114,6 +128,7 @@ export function Sidebar({ compact, onToggleCompact }: SidebarProps) {
       </nav>
 
       <div className={`space-y-2.5 border-t border-line py-4 text-xs text-muted ${compact ? "px-2" : "px-3"}`}>
+<<<<<<< HEAD
         {updateReady && (
           <Link
             to="/settings"
@@ -132,6 +147,8 @@ export function Sidebar({ compact, onToggleCompact }: SidebarProps) {
             )}
           </Link>
         )}
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
         {mainOverlay && !compact && (
           <button
             onClick={() => void copyObsUrl(mainOverlay.id)}

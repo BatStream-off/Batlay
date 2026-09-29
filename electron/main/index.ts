@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from "electron";
+=======
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme } from "electron";
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { OverlayServer } from "../services/overlay-server.js";
@@ -6,8 +10,11 @@ import { store, type BatlayConfigSchema } from "../services/config-store.js";
 import * as spotifyAuth from "../services/spotify-auth.js";
 import * as systemMedia from "../services/system-media.js";
 import { lookupArtwork } from "../services/artwork-lookup.js";
+<<<<<<< HEAD
 import { createUpdateController, type UpdateController, type UpdaterLike } from "../services/updater.js";
 import { UPDATE_REPO, isUpdateRepoConfigured, releasesUrl, type UpdateStatus } from "../shared/update.js";
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
 import type { PlaybackState } from "../shared/types.js";
 import {
   applyLaunchOnStartup,
@@ -56,6 +63,7 @@ function applyThemeFromSettings(): void {
   pushThemeState();
 }
 
+<<<<<<< HEAD
 // --- Mises à jour (GitHub Releases) -----------------------------------------
 let updateController: UpdateController | null = null;
 
@@ -91,6 +99,8 @@ async function getUpdateController(): Promise<UpdateController> {
   return updateController;
 }
 
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
 async function createWindow(): Promise<void> {
   const initialWindowState = getInitialWindowState(store.get("settings"));
 
@@ -103,8 +113,11 @@ async function createWindow(): Promise<void> {
     // l'ouverture de la fenêtre et le premier rendu du renderer.
     backgroundColor: WINDOW_BACKGROUND[getThemeState().resolved],
     title: "Batlay",
+<<<<<<< HEAD
     // Icône de la fenêtre (barre des tâches en dev ; l'exe installé porte assets/icon.ico).
     icon: path.join(__dirname, "../../assets/icon.png"),
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
     // La fenêtre est créée masquée pour éviter un flash avant le premier
     // rendu, mais attachWindowReveal (ci-dessous) l'affiche TOUJOURS.
     show: false,
@@ -186,6 +199,7 @@ async function startOverlayServer(): Promise<void> {
 }
 
 function registerIpcHandlers(): void {
+<<<<<<< HEAD
   // --- Mises à jour ---
   ipcMain.handle("update:get-version", () => app.getVersion());
   ipcMain.handle("update:get-status", async () => (await getUpdateController()).getStatus());
@@ -200,6 +214,8 @@ function registerIpcHandlers(): void {
     return true;
   });
 
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
   // --- Config / Settings ---
   ipcMain.handle("config:get", () => store.store);
   ipcMain.handle("config:set-settings", (_e, patch: Partial<BatlayConfigSchema["settings"]>) => {
@@ -309,6 +325,7 @@ if (!hasSingleInstanceLock) {
     await startOverlayServer();
     await createWindow();
 
+<<<<<<< HEAD
     // Recherche discrète 10 s après le démarrage (version installée seulement) :
     // elle ne télécharge rien, elle fait seulement apparaître le bouton « Mise à jour ».
     if (app.isPackaged) {
@@ -317,6 +334,8 @@ if (!hasSingleInstanceLock) {
       }, 10_000);
     }
 
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });

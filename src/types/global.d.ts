@@ -2,7 +2,10 @@ import type { PlaybackState } from "./track";
 import type { SpotifyItemLike } from "@/services/spotify-track";
 import type { Settings } from "@/stores/useSettingsStore";
 import type { ResolvedTheme, ThemePreference } from "../../electron/shared/theme";
+<<<<<<< HEAD
 import type { UpdateStatus } from "../../electron/shared/update";
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
 
 export interface BatlayBridge {
   config: {
@@ -44,6 +47,7 @@ export interface BatlayBridge {
     /** Notifié quand le réglage change ou que Windows bascule (réglage « system »). */
     onChange(callback: (payload: { preference: ThemePreference; resolved: ResolvedTheme }) => void): () => void;
   };
+<<<<<<< HEAD
   update: {
     getStatus(): Promise<UpdateStatus>;
     check(): Promise<UpdateStatus>;
@@ -54,6 +58,8 @@ export interface BatlayBridge {
     getVersion(): Promise<string>;
     onStatus(callback: (status: UpdateStatus) => void): () => void;
   };
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
   artwork: {
     /** (artiste, titre) -> URL de pochette. `url: null` si introuvable — jamais d'exception. */
     lookup(

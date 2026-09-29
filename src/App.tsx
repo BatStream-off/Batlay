@@ -10,13 +10,19 @@ import { Settings } from "@/pages/Settings";
 import { useOverlayStore } from "@/stores/useOverlayStore";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useMusicStore } from "@/stores/useMusicStore";
+<<<<<<< HEAD
 import { useUpdateStore } from "@/stores/useUpdateStore";
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
 
 export default function App() {
   const loadOverlays = useOverlayStore((s) => s.load);
   const loadSettings = useSettingsStore((s) => s.load);
   const tryRestoreSpotify = useMusicStore((s) => s.tryRestoreSpotifySession);
+<<<<<<< HEAD
   const initUpdates = useUpdateStore((s) => s.init);
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
   const { pathname } = useLocation();
   const inEditor = pathname.startsWith("/editor");
   // Dans l'éditeur la barre latérale se réduit à des icônes (la fenêtre fait
@@ -32,9 +38,12 @@ export default function App() {
     tryRestoreSpotify();
   }, [loadOverlays, loadSettings, tryRestoreSpotify]);
 
+<<<<<<< HEAD
   // État des mises à jour (poussé par le process principal).
   useEffect(() => initUpdates(), [initUpdates]);
 
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
   useEffect(() => {
     if (!inEditor) setEditorSidebarOpen(false);
   }, [inEditor]);

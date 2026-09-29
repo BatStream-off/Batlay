@@ -246,6 +246,7 @@ Voir `src/services/demo-provider.ts` (aucune dépendance externe), `src/services
 5. Implémenter l'import JSON avec validation de schéma.
 6. Créer l'identité visuelle (icône, favicon) et configurer `assets/icon.ico`.
 7. `npm run dist` sur Windows pour produire et tester `Batlay Setup.exe`.
+<<<<<<< HEAD
 
 ## 13. Mises à jour depuis GitHub
 
@@ -261,3 +262,5 @@ démarrage (elle ne télécharge rien). Fonctionne dans la version **installée*
 puis `git tag v0.3.0 && git push --tags` : `.github/workflows/release.yml` construit l'installateur et le publie avec
 `latest.yml`. Sans GitHub Actions : `set GH_TOKEN=...` puis `npm run release`.
 Le dépôt doit être **public** (un dépôt privé exigerait un jeton dans l'application).
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e

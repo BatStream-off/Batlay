@@ -1,7 +1,11 @@
 {
   "name": "batlay",
   "productName": "Batlay",
+<<<<<<< HEAD
   "version": "0.3.0",
+=======
+  "version": "0.2.0",
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
   "description": "Batlay - Application desktop d'overlay musical pour le streaming (OBS)",
   "author": "Adil",
   "main": "dist-electron/main/index.js",
@@ -16,8 +20,12 @@
     "dist": "npm run build && electron-builder --win",
     "test": "vitest run",
     "test:watch": "vitest",
+<<<<<<< HEAD
     "lint": "eslint . --ext ts,tsx",
     "release": "npm run build && electron-builder --win --publish always"
+=======
+    "lint": "eslint . --ext ts,tsx"
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
   },
   "dependencies": {
     "zustand": "^4.5.2",
@@ -31,8 +39,12 @@
     "lucide-react": "^0.383.0",
     "@fontsource-variable/inter": "^5.0.18",
     "@fontsource-variable/space-grotesk": "^5.0.18",
+<<<<<<< HEAD
     "@fontsource-variable/jetbrains-mono": "^5.0.20",
     "electron-updater": "^6.3.4"
+=======
+    "@fontsource-variable/jetbrains-mono": "^5.0.20"
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
@@ -64,8 +76,12 @@
     },
     "files": [
       "dist/**/*",
+<<<<<<< HEAD
       "dist-electron/**/*",
       "assets/icon.png"
+=======
+      "dist-electron/**/*"
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
     ],
     "win": {
       "target": [
@@ -77,7 +93,11 @@
         }
       ],
       "icon": "assets/icon.ico",
+<<<<<<< HEAD
       "artifactName": "Batlay-Setup-${version}.exe"
+=======
+      "artifactName": "Batlay Setup.exe"
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
     },
     "nsis": {
       "oneClick": false,
@@ -85,6 +105,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Batlay"
+<<<<<<< HEAD
     },
     "publish": [
       {
@@ -98,5 +119,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/BatStream-off/Batlay.git"
+=======
+    }
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
   }
 }

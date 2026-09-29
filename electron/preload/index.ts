@@ -2,7 +2,10 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { PlaybackState } from "../shared/types.js";
 // Types seulement : le preload est bundlé par esbuild, aucun code partagé n'y est embarqué.
 import type { ResolvedTheme, ThemePreference } from "../shared/theme.js";
+<<<<<<< HEAD
 import type { UpdateStatus } from "../shared/update.js";
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
 
 /**
  * Surface IPC volontairement restreinte : le renderer ne peut appeler
@@ -52,6 +55,7 @@ const batlayApi = {
       return () => ipcRenderer.removeListener("theme:changed", listener);
     },
   },
+<<<<<<< HEAD
   update: {
     getStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke("update:get-status"),
     check: (): Promise<UpdateStatus> => ipcRenderer.invoke("update:check"),
@@ -66,6 +70,8 @@ const batlayApi = {
       return () => ipcRenderer.removeListener("update:status", listener);
     },
   },
+=======
+>>>>>>> 961f5a43fac0db67de2259d44ddaadc0ce6db13e
   artwork: {
     lookup: (artist: string, title: string) =>
       ipcRenderer.invoke("artwork:lookup", { artist, title }),

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Les assets (script/CSS buildés par Vite) utilisent des chemins relatifs,
+         mais cette page est servie depuis /overlay/:overlayId (pas depuis la
+         racine) par le Batlay Overlay Server. Sans <base href="/">, le
+         navigateur résoudrait "./assets/..." contre l'URL de la requête
+         (/overlay/assets/...) au lieu de la racine du serveur (/assets/...),
+         provoquant des 404 silencieux et un overlay vide dans OBS. -->
+    <base href="/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Batlay Overlay</title>
+    <style>
+      /* Fond transparent obligatoire pour OBS Browser Source */
+      html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+      #overlay-root { width: 100vw; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="overlay-root"></div>
+    <script type="module" src="/overlay/main.tsx"></script>
+  </body>
+</html>
