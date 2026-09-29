@@ -53,15 +53,16 @@ export default {
         stage: "#0A0A0F",
       },
       fontFamily: {
-        display: ["'Space Grotesk'", "system-ui", "sans-serif"],
-        body: ["'Inter'", "system-ui", "sans-serif"],
-        mono: ["'JetBrains Mono'", "monospace"],
+        display: ["'Space Grotesk Variable'", "'Space Grotesk'", "system-ui", "sans-serif"],
+        body: ["'Inter Variable'", "'Inter'", "system-ui", "sans-serif"],
+        mono: ["'JetBrains Mono Variable'", "'JetBrains Mono'", "monospace"],
       },
       borderRadius: {
         xl2: "1.25rem",
       },
       boxShadow: {
         glow: "0 0 24px -6px rgba(155, 107, 255, 0.45)",
+        pop: "0 20px 50px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(155, 107, 255, 0.12)",
       },
     },
   },

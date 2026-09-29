@@ -99,7 +99,7 @@ function ComponentProperties(
     <>
       {/* En-tête collant : le nom du calque et les onglets restent visibles pendant le défilement. */}
       <div className="sticky top-0 z-10 -mx-4 border-b border-line bg-base-950 px-4 pb-2 pt-3">
-        <p className="mb-1 text-[10px] uppercase tracking-wide text-accent">{COMPONENT_LABELS[c.type]}</p>
+        <p className="mb-1 text-xs font-medium text-accent">{COMPONENT_LABELS[c.type]}</p>
         <TextField
           label="Nom du calque"
           value={c.name ?? ""}
@@ -336,7 +336,7 @@ function OverlayProperties({ overlay, obsUrl, onCopyUrl, onPatchTheme, onRenameO
   return (
     <>
       <div className="border-b border-line py-3">
-        <p className="mb-1 text-[10px] uppercase tracking-wide text-accent">Overlay</p>
+        <p className="mb-1 text-xs font-medium text-accent">Overlay</p>
         <TextField label="Nom" value={overlay.name} onChange={onRenameOverlay} />
         <p className="mt-2 text-[11px] text-muted">Sélectionnez un composant pour le modifier.</p>
       </div>
@@ -377,7 +377,7 @@ function OverlayProperties({ overlay, obsUrl, onCopyUrl, onPatchTheme, onRenameO
 
       {obsUrl && (
         <div className="mt-2 border-t border-line pt-4">
-          <p className="mb-1.5 text-xs font-medium uppercase text-muted">OBS Browser Source</p>
+          <p className="mb-1.5 text-[13px] font-medium text-fg">Source navigateur OBS</p>
           <p className="mb-1 text-[11px] text-muted">URL de l'overlay</p>
           <div className="flex items-center gap-1.5 rounded-lg border border-base-700 bg-base-800 px-2 py-1.5">
             <code className="flex-1 truncate text-[11px] text-muted">{obsUrl}</code>

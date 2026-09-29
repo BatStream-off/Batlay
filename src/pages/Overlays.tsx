@@ -1,12 +1,14 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, Copy, Download, Link2, Pencil, Plus, RefreshCw, Star, Trash2 } from "lucide-react";
+import { nanoid } from "nanoid";
+import { Check, Copy, Download, Link2, Pencil, Plus, RefreshCw, Star, Trash2, Upload } from "lucide-react";
 import { useOverlayStore } from "@/stores/useOverlayStore";
 import { useToastStore } from "@/stores/useToastStore";
 import { useCopyObsUrl } from "@/hooks/useCopyObsUrl";
 import { getPreset, listPresetIds } from "@/presets";
 import { CANVAS_SIZES } from "@/utils/overlay-model";
 import { formatRelativeDate, pickMainOverlay } from "@/utils/ui-helpers";
+import { parseOverlayImport } from "@/utils/overlay-import";
 import type { OverlayConfig, PresetId } from "@/types/overlay";
 import { OverlayPreview } from "@/components/OverlayPreview";
 import { RegenerateObsLinkModal } from "@/components/RegenerateObsLinkModal";
@@ -31,17 +33,19 @@ const clampDimension = (n: number, fallback: number) =>
 
 export function Overlays() {
   const navigate = useNavigate();
-  const { overlays, activeOverlayId, create, remove, duplicate, setActive, regenerateObsLink } = useOverlayStore((s) => ({
+  const { overlays, activeOverlayId, create, remove, duplicate, addImported, setActive, regenerateObsLink } = useOverlayStore((s) => ({
     overlays: s.overlays,
     activeOverlayId: s.activeOverlayId,
     create: s.create,
     remove: s.remove,
     duplicate: s.duplicate,
+    addImported: s.addImported,
     setActive: s.setActive,
     regenerateObsLink: s.regenerateObsLink,
   }));
   const push = useToastStore((s) => s.push);
   const copyObsUrl = useCopyObsUrl();
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmRegenerateId, setConfirmRegenerateId] = useState<string | null>(null);
@@ -97,6 +101,25 @@ export function Overlays() {
     push("Overlay exporté (.json)", "success");
   }
 
+  /** Lit un .json exporté par Batlay ; le fichier est vérifié avant tout ajout (voir overlay-import.ts). */
+  async function handleImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    // Remis à zéro pour pouvoir réimporter le même fichier juste après.
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const result = parseOverlayImport(await file.text(), overlays.map((o) => o.name), () => nanoid(10));
+      if (!result.ok) {
+        push(`Import impossible : ${result.reason}`, "error");
+        return;
+      }
+      await addImported(result.overlay);
+      push(`« ${result.overlay.name} » importé`, "success");
+    } catch (err) {
+      push((err as Error).message || "Impossible de lire ce fichier.", "error");
+    }
+  }
+
   async function handleDuplicate(overlay: OverlayConfig) {
     await duplicate(overlay.id);
     push(`« ${overlay.name} » dupliqué`, "success");
@@ -123,16 +146,22 @@ export function Overlays() {
   const toRegenerate = overlays.find((o) => o.id === confirmRegenerateId);
 
   return (
-    <div className="mx-auto max-w-5xl px-8 py-10">
+    <div className="stagger mx-auto max-w-5xl px-8 py-10">
       <PageHeader
         title="Mes overlays"
         subtitle={overlays.length === 0 ? "Aucun overlay pour l'instant" : `${overlays.length} overlay${overlays.length > 1 ? "s" : ""}`}
         actions={
-          <Button variant="primary" onClick={() => setPickerOpen(true)}>
-            <Plus size={16} /> Nouvel overlay
-          </Button>
+          <>
+            <Button onClick={() => importInputRef.current?.click()} title="Importer un overlay exporté (.json)">
+              <Upload size={15} /> Importer
+            </Button>
+            <Button variant="primary" onClick={() => setPickerOpen(true)}>
+              <Plus size={16} /> Nouvel overlay
+            </Button>
+          </>
         }
       />
+      <input ref={importInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => void handleImportFile(e)} />
 
       {overlays.length === 0 ? (
         <div className="mt-12 flex flex-col items-center gap-3 rounded-xl2 border border-dashed border-line py-16 text-center">
@@ -140,22 +169,27 @@ export function Overlays() {
           <p className="max-w-sm text-xs text-muted">
             Choisissez un preset (Minimal, Glass, Neon...) ou partez d'un canvas vide, puis ajustez chaque élément dans l'éditeur.
           </p>
-          <Button variant="primary" className="mt-2" onClick={() => setPickerOpen(true)}>
-            <Plus size={16} /> Nouvel overlay
-          </Button>
+          <div className="mt-2 flex items-center gap-2">
+            <Button variant="primary" onClick={() => setPickerOpen(true)}>
+              <Plus size={16} /> Nouvel overlay
+            </Button>
+            <Button onClick={() => importInputRef.current?.click()}>
+              <Upload size={15} /> Importer un fichier
+            </Button>
+          </div>
         </div>
       ) : (
-        <div className="mt-8 grid grid-cols-2 gap-4 lg:grid-cols-3">
+        <div className="stagger mt-8 grid grid-cols-2 gap-4 lg:grid-cols-3">
           {overlays.map((overlay) => {
             const isMain = mainId === overlay.id;
             const modified = formatRelativeDate(overlay.updatedAt);
             return (
-              <div key={overlay.id} className="rounded-xl2 border border-line bg-base-900">
+              <div key={overlay.id} className="card card-hover">
                 {/* Fond de scène fixe : l'overlay est fait pour se poser sur une vidéo, pas sur le fond de l'interface.
                     Un clic sur l'aperçu ouvre l'éditeur : c'est le geste le plus naturel. */}
                 <button
                   onClick={() => navigate(`/editor/${overlay.id}`)}
-                  className="group relative block aspect-video w-full overflow-hidden rounded-t-xl2 bg-stage"
+                  className="group relative block aspect-video w-full overflow-hidden rounded-t-[1.2rem] bg-stage"
                   title="Ouvrir dans l'éditeur"
                   aria-label={`Modifier ${overlay.name}`}
                 >
@@ -233,7 +267,7 @@ export function Overlays() {
               <button
                 key={id}
                 onClick={() => void handleCreate(id)}
-                className="overflow-hidden rounded-lg border border-base-700 text-left transition hover:border-signal-500"
+                className="card-hover overflow-hidden rounded-xl border border-base-700 bg-base-800/40 text-left transition hover:border-signal-500"
               >
                 <div className="aspect-video bg-stage">
                   <OverlayPreview overlay={overlay} scale="fit" />

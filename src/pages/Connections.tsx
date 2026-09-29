@@ -97,7 +97,7 @@ export function Connections() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-10">
+    <div className="stagger mx-auto max-w-3xl px-8 py-10">
       <PageHeader
         title="Connexions"
         subtitle="Choisissez la source musicale de vos overlays. Une seule source est active à la fois."
@@ -262,7 +262,7 @@ function ProviderCard({
   first?: boolean;
 }) {
   return (
-    <section className={`${first ? "mt-6" : "mt-4"} rounded-xl2 border p-6 ${connected ? "border-live/40" : "border-line"} bg-base-900`}>
+    <section className={`${first ? "mt-6" : "mt-4"} card p-6 ${connected ? "card-live" : ""}`}>
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <h2 className="flex items-center gap-2 font-medium text-fg">
@@ -270,7 +270,7 @@ function ProviderCard({
             {badge}
           </h2>
           <p className="mt-0.5 text-sm">
-            {connected ? <span className="text-ok">● Connecté</span> : <span className="text-muted">Non connecté</span>}
+            {connected ? <span className="inline-flex items-center gap-2 text-ok"><span className="dot-live h-2 w-2 rounded-full" />Connecté</span> : <span className="text-muted">Non connecté</span>}
           </p>
         </div>
         <div className="shrink-0">{action}</div>

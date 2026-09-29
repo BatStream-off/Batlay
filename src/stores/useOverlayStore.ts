@@ -21,6 +21,8 @@ interface OverlayStoreState {
   update: (overlay: OverlayConfig) => Promise<void>;
   remove: (id: string) => Promise<void>;
   duplicate: (id: string) => Promise<void>;
+  /** Ajoute un overlay déjà validé (voir src/utils/overlay-import.ts) : il garde l'id qu'on lui a donné. */
+  addImported: (overlay: OverlayConfig) => Promise<void>;
   rename: (id: string, name: string) => Promise<void>;
   /** Nouveau lien OBS pour un overlay (l'ancien cesse de fonctionner). Renvoie l'overlay avec son nouvel id. */
   regenerateObsLink: (id: string) => Promise<OverlayConfig | null>;
@@ -122,6 +124,12 @@ export const useOverlayStore = create<OverlayStoreState>((set, get) => ({
       updatedAt: Date.now(),
     };
     const overlays = [...get().overlays, copy];
+    set({ overlays });
+    await persist(overlays);
+  },
+
+  addImported: async (overlay) => {
+    const overlays = [...get().overlays, overlay];
     set({ overlays });
     await persist(overlays);
   },

@@ -51,7 +51,7 @@ export function ShortcutsHelp() {
         <>
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full z-30 mt-2 w-80 rounded-xl border border-base-700 bg-base-900 p-4 shadow-glow">
-            <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">Raccourcis clavier</p>
+            <p className="mb-3 text-sm font-medium text-fg">Raccourcis clavier</p>
             <ul className="space-y-2">
               {SHORTCUTS.map((s, i) => (
                 <li key={i} className="flex items-center justify-between gap-3 text-xs">

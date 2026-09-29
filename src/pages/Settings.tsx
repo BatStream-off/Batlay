@@ -4,7 +4,7 @@ import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useOverlayStore } from "@/stores/useOverlayStore";
 import { useToastStore } from "@/stores/useToastStore";
 import { ColorField } from "@/components/editor/fields";
-import { Button, PageHeader, StatusPill } from "@/components/ui";
+import { Button, PageHeader, SectionTitle, StatusPill } from "@/components/ui";
 import { RegenerateObsLinkModal } from "@/components/RegenerateObsLinkModal";
 import { DEFAULT_ACCENT_HEX } from "@/theme/accent";
 import { validatePort } from "@/utils/ui-helpers";
@@ -73,11 +73,11 @@ export function Settings() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-8 py-10">
-      <PageHeader title="Paramètres" />
+    <div className="stagger mx-auto max-w-2xl px-8 py-10">
+      <PageHeader title="Paramètres" subtitle="Démarrage, apparence et serveur d'overlay." />
 
-      <section className="mt-6 rounded-xl2 border border-line bg-base-900 p-6">
-        <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Général</h2>
+      <section className="mt-6 card p-6">
+        <SectionTitle className="mb-2">Général</SectionTitle>
         <Toggle
           label="Lancer au démarrage de Windows"
           hint="Version installée uniquement."
@@ -92,8 +92,8 @@ export function Settings() {
         />
       </section>
 
-      <section className="mt-4 rounded-xl2 border border-line bg-base-900 p-6">
-        <h2 className="mb-4 text-xs font-medium uppercase tracking-wide text-muted">Apparence</h2>
+      <section className="mt-4 card p-6">
+        <SectionTitle className="mb-4">Apparence</SectionTitle>
         <div className="flex items-center justify-between text-sm text-fg">
           <span id="theme-label">Thème</span>
           <div
@@ -140,8 +140,8 @@ export function Settings() {
         </div>
       </section>
 
-      <section className="mt-4 rounded-xl2 border border-line bg-base-900 p-6">
-        <h2 className="mb-4 text-xs font-medium uppercase tracking-wide text-muted">Serveur d'overlay</h2>
+      <section className="mt-4 card p-6">
+        <SectionTitle className="mb-4">Serveur d'overlay</SectionTitle>
         <div className="flex items-center justify-between text-sm text-fg">
           <span>État</span>
           <StatusPill tone={overlayServerRunning ? "ok" : "warn"}>{overlayServerRunning ? "● En ligne" : "● Hors ligne"}</StatusPill>
@@ -185,10 +185,10 @@ export function Settings() {
         </div>
       </section>
 
-      <section className="mt-4 rounded-xl2 border border-line bg-base-900 p-6">
-        <h2 className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">À propos</h2>
+      <section className="mt-4 card p-6">
+        <SectionTitle className="mb-2">À propos</SectionTitle>
         <p className="text-sm text-fg">Batlay</p>
-        <p className="text-xs text-muted">Version 0.1.1</p>
+        <p className="text-xs text-muted">Version 0.2.0</p>
         <p className="text-xs text-muted">Créateur : Adilbl</p>
       </section>
 
@@ -229,12 +229,12 @@ function Toggle({
         aria-checked={checked}
         aria-label={label}
         onClick={() => onChange(!checked)}
-        className={`inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition ${
-          checked ? "bg-signal-600" : "bg-base-700"
+        className={`inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition duration-200 ${
+          checked ? "btn-primary" : "bg-base-700 shadow-inner"
         }`}
       >
         <span
-          className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${
+          className={`h-5 w-5 rounded-full bg-white shadow-md transition-transform duration-200 ${
             checked ? "translate-x-5" : "translate-x-0"
           }`}
         />

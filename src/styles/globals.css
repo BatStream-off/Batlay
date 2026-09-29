@@ -4,7 +4,9 @@
 
 @layer base {
   html {
-    font-family: "Inter", system-ui, sans-serif;
+    font-family: "Inter Variable", "Inter", system-ui, sans-serif;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
   }
   :root {
     /* Couleur des boutons par défaut (violet Batlay). Surchargée en ligne
@@ -13,24 +15,235 @@
     --signal-600: 124 77 255;
     --signal-500: 155 107 255;
     --signal-400: 182 140 255;
+
+    /* Relief des surfaces (sombre par défaut, redéfini pour le thème clair). */
+    --card-highlight: rgb(255 255 255 / 0.05);
+    --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.3), 0 14px 32px -18px rgb(0 0 0 / 0.65);
+    --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.3), 0 22px 44px -18px rgb(0 0 0 / 0.75);
+    --aurora-a: 0.2;
+    --aurora-b: 0.07;
+    --grain-opacity: 0.05;
   }
-  /* Navigation au clavier : un anneau visible sur les boutons et interrupteurs.
-     Les champs de saisie gardent leur propre style (bordure au focus). */
+  :root[data-theme="light"] {
+    --card-highlight: rgb(255 255 255 / 0.9);
+    --shadow-soft: 0 1px 2px rgb(20 20 40 / 0.06), 0 12px 28px -16px rgb(40 30 90 / 0.22);
+    --shadow-lift: 0 2px 4px rgb(20 20 40 / 0.07), 0 22px 40px -18px rgb(40 30 90 / 0.32);
+    --aurora-a: 0.12;
+    --aurora-b: 0.05;
+    --grain-opacity: 0.035;
+  }
+
+  ::selection {
+    background: rgb(var(--signal-500) / 0.35);
+  }
+
+  /* Navigation au clavier : un anneau visible sur les boutons et interrupteurs
+     (les champs de saisie ont le leur, plus bas). */
   button:focus-visible,
   [role="switch"]:focus-visible,
   a:focus-visible {
     outline: 2px solid rgb(var(--signal-500));
     outline-offset: 2px;
   }
+  /* Champs de saisie : anneau d'accent doux + bordure. */
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+    border-color: rgb(var(--signal-500));
+    box-shadow: 0 0 0 3px rgb(var(--signal-500) / 0.22);
+  }
   ::-webkit-scrollbar {
-    width: 8px;
+    width: 10px;
+    height: 10px;
   }
   ::-webkit-scrollbar-thumb {
-    /* Variable dédiée : base-700 est trop proche du fond en thème clair. */
     background-color: rgb(var(--scrollbar));
+    border: 2px solid transparent;
+    background-clip: content-box;
     @apply rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(var(--faint));
+    background-clip: content-box;
   }
   ::-webkit-scrollbar-track {
     @apply bg-transparent;
+  }
+}
+
+@layer components {
+  /* ---------- Fond ambiant : halos d'accent + grain fin ---------- */
+  .app-aurora {
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background:
+      radial-gradient(60rem 34rem at 88% -8%, rgb(var(--signal-600) / var(--aurora-a)), transparent 60%),
+      radial-gradient(44rem 30rem at -6% 108%, rgb(255 95 162 / var(--aurora-b)), transparent 62%);
+  }
+  .app-aurora::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: var(--grain-opacity);
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* ---------- Cartes ---------- */
+  .card {
+    position: relative;
+    border: 1px solid rgb(var(--line));
+    border-radius: 1.25rem;
+    background: linear-gradient(180deg, rgb(var(--base-900) / 0.96), rgb(var(--base-900) / 0.82));
+    box-shadow: inset 0 1px 0 var(--card-highlight), var(--shadow-soft);
+    backdrop-filter: blur(10px);
+  }
+  .card-hover {
+    transition: transform 0.25s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 0.25s, border-color 0.25s;
+  }
+  .card-hover:hover {
+    transform: translateY(-3px);
+    border-color: rgb(var(--signal-500) / 0.45);
+    box-shadow: inset 0 1px 0 var(--card-highlight), var(--shadow-lift), 0 0 0 1px rgb(var(--signal-500) / 0.12);
+  }
+  .card-live {
+    border-color: rgb(55 226 154 / 0.4);
+    box-shadow: inset 0 1px 0 var(--card-highlight), var(--shadow-soft), 0 0 36px -14px rgb(55 226 154 / 0.5);
+  }
+
+  /* ---------- Boutons ---------- */
+  .btn-primary {
+    color: #fff;
+    background: linear-gradient(180deg, rgb(var(--signal-500)), rgb(var(--signal-600)));
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.28),
+      0 1px 2px rgb(0 0 0 / 0.25),
+      0 8px 18px -8px rgb(var(--signal-600) / 0.85);
+  }
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.1);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.32),
+      0 1px 2px rgb(0 0 0 / 0.25),
+      0 10px 24px -8px rgb(var(--signal-500) / 0.95);
+  }
+  .btn-secondary {
+    border: 1px solid rgb(var(--base-700));
+    background: linear-gradient(180deg, rgb(var(--base-800)), rgb(var(--base-800) / 0.7));
+    box-shadow: inset 0 1px 0 var(--card-highlight);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: rgb(var(--base-700));
+    border-color: rgb(var(--base-600));
+  }
+  .btn-danger {
+    color: #fff;
+    background: linear-gradient(180deg, #ef4444, #dc2626);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22), 0 8px 18px -8px rgb(220 38 38 / 0.7);
+  }
+  .btn-danger:hover:not(:disabled) {
+    filter: brightness(1.1);
+  }
+
+  /* ---------- Texte dégradé (titres de page, titre du morceau) ---------- */
+  .text-gradient {
+    background: linear-gradient(180deg, rgb(var(--fg)), rgb(var(--fg) / 0.66));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .text-gradient-accent {
+    background: linear-gradient(90deg, rgb(var(--signal-400)), rgb(255 130 190));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* ---------- Indicateur « en ligne » qui pulse ---------- */
+  .dot-live {
+    position: relative;
+    background: #37e29a;
+  }
+  .dot-live::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: #37e29a;
+    animation: ping-soft 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+
+  /* ---------- Égaliseur animé ---------- */
+  .eq-bar {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: eq 1s ease-in-out infinite;
+  }
+  .eq-bar:nth-child(2) { animation-delay: -0.35s; animation-duration: 0.85s; }
+  .eq-bar:nth-child(3) { animation-delay: -0.7s; animation-duration: 1.15s; }
+  .eq-paused .eq-bar { animation: none; }
+
+  /* ---------- Entrées en scène ---------- */
+  .page-enter {
+    animation: fade-in 0.3s ease-out;
+  }
+  .stagger > * {
+    animation: rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+    animation-delay: calc(var(--i, 0) * 60ms);
+  }
+  .stagger > *:nth-child(1) { --i: 0; }
+  .stagger > *:nth-child(2) { --i: 1; }
+  .stagger > *:nth-child(3) { --i: 2; }
+  .stagger > *:nth-child(4) { --i: 3; }
+  .stagger > *:nth-child(5) { --i: 4; }
+  .stagger > *:nth-child(6) { --i: 5; }
+  .stagger > *:nth-child(n + 7) { --i: 6; }
+
+  .modal-backdrop { animation: fade-in 0.18s ease-out; }
+  .modal-panel { animation: pop-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.1); }
+  .menu-pop { animation: pop-in 0.16s ease-out; transform-origin: bottom right; }
+  .toast-in { animation: toast-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.1); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(24px) scale(0.96); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes ping-soft {
+  75%, 100% { transform: scale(2.4); opacity: 0; }
+}
+@keyframes eq {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .stagger > *,
+  .modal-backdrop,
+  .modal-panel,
+  .menu-pop,
+  .toast-in,
+  .dot-live::after,
+  .eq-bar {
+    animation: none !important;
+  }
+  .card-hover:hover {
+    transform: none;
   }
 }

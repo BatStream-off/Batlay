@@ -26,7 +26,7 @@ export function Section({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between text-xs font-medium uppercase tracking-wide text-muted hover:text-fg"
+        className="flex w-full items-center justify-between text-[13px] font-medium text-fg hover:text-accent"
       >
         {title}
         <ChevronDown size={13} className={`transition ${open ? "" : "-rotate-90"}`} />

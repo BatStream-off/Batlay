@@ -103,7 +103,7 @@ export function LayersPanel(props: LayersPanelProps) {
         )}
       </div>
 
-      <p className="px-4 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted">
+      <p className="px-4 pb-1 pt-3 text-xs font-medium text-muted">
         Calques ({components.length})
       </p>
 

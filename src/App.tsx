@@ -35,12 +35,13 @@ export default function App() {
   }, [inEditor]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-base-950">
+    <div className="relative flex h-screen w-screen overflow-hidden bg-base-950">
+      <div className="app-aurora" aria-hidden="true" />
       <Sidebar
         compact={inEditor && !editorSidebarOpen}
         onToggleCompact={inEditor ? () => setEditorSidebarOpen((open) => !open) : undefined}
       />
-      <main className="flex-1 overflow-y-auto">
+      <main key={pathname} className="page-enter relative z-10 flex-1 overflow-y-auto">
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/overlays" element={<Overlays />} />
