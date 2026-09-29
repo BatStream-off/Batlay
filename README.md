@@ -1,4 +1,6 @@
-# Batlay
+# Batlay — documentation technique
+
+> Ce document s'adresse aux développeurs. Présentation et installation : voir le [README](../README.md).
 
 Application desktop Windows permettant de créer des overlays affichant la musique en cours de lecture (Spotify), personnalisables, à utiliser dans OBS via Browser Source.
 
@@ -189,7 +191,7 @@ npm run build   # build Vite (dashboard + overlay) + compilation electron/
 npm run dist    # build + génération de l'installateur Windows via electron-builder
 ```
 
-`npm run dist` doit produire `release/Batlay Setup.exe` — **non vérifié dans cet environnement**, à confirmer sur une machine Windows (ou via electron-builder cross-compilation) avec accès réseau.
+`npm run dist` doit produire `release/Batlay-Setup-<version>.exe` (avec `latest.yml`, utilisé par les mises à jour) — **non vérifié dans cet environnement**, à confirmer sur une machine Windows (ou via electron-builder cross-compilation) avec accès réseau.
 
 ## 8. Utilisation avec OBS
 
@@ -203,7 +205,7 @@ npm run dist    # build + génération de l'installateur Windows via electron-bu
 
 ## 9. Import / Export
 
-Chaque overlay peut être exporté en `.json` (`schemaVersion: 1`) depuis la page **Mes overlays** (menu « … » de la carte). L'import avec validation stricte du schéma **n'est pas encore implémenté** — actuellement seul l'export fonctionne.
+Chaque overlay peut être exporté en `.json` (`schemaVersion: 1`) depuis la page **Mes overlays** (menu « … » de la carte). L'import (bouton « Importer » de « Mes overlays ») vérifie le fichier avant tout ajout ; l'overlay importé reçoit un nouveau lien OBS.
 
 ## 10. Ajouter un nouveau provider musical
 
@@ -245,7 +247,7 @@ Voir `src/services/demo-provider.ts` (aucune dépendance externe), `src/services
 4. Valider la Lecture système sur un vrai Windows (accents, artistes, pochette, position).
 5. Implémenter l'import JSON avec validation de schéma.
 6. Créer l'identité visuelle (icône, favicon) et configurer `assets/icon.ico`.
-7. `npm run dist` sur Windows pour produire et tester `Batlay Setup.exe`.
+7. `npm run dist` sur Windows pour produire et tester `Batlay-Setup-<version>.exe`.
 
 ## 13. Mises à jour depuis GitHub
 
