@@ -54,6 +54,14 @@ export function createUpdateController(options: UpdateControllerOptions): Update
     onStatus(next);
   }
 
+  /**
+   * État courant relu tel quel. TypeScript « fige » le type de `status` après
+   * un test (`if (status.state !== …) return`) et ne voit pas que `set()` le
+   * modifie plus loin, y compris via les événements de l'updater : on relit
+   * donc la valeur à travers cette fonction.
+   */
+  const stateNow = (): UpdateStatus["state"] => status.state;
+
   if (usable) {
     updater.autoDownload = false; // le téléchargement attend un clic
     updater.autoInstallOnAppQuit = false; // et l'installation aussi
@@ -83,10 +91,11 @@ export function createUpdateController(options: UpdateControllerOptions): Update
         await updater.checkForUpdates();
         // Les événements « update-available / not-available » ont posé l'état ;
         // s'il n'a pas changé (aucun événement), on ne reste pas bloqué sur « checking ».
-        if (status.state === "checking") set({ state: "up-to-date" });
+        if (stateNow() === "checking") set({ state: "up-to-date" });
       } catch (err) {
         log(`Recherche de mise à jour échouée : ${String((err as Error)?.message ?? err)}`);
-        if (silent) set(previous.state === "checking" ? { state: "idle" } : previous);
+        // Recherche de fond : on remet l'état d'avant (jamais « checking », exclu plus haut).
+        if (silent) set(previous);
         else set({ state: "error", message: describeUpdateError(err) });
       }
       return status;
@@ -98,7 +107,7 @@ export function createUpdateController(options: UpdateControllerOptions): Update
       set({ state: "downloading", percent: 0 });
       try {
         await updater.downloadUpdate();
-        if (status.state === "downloading") set({ state: "downloaded", version });
+        if (stateNow() === "downloading") set({ state: "downloaded", version });
       } catch (err) {
         log(`Téléchargement de mise à jour échoué : ${String((err as Error)?.message ?? err)}`);
         set({ state: "error", message: describeUpdateError(err) });
