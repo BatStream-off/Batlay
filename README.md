@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.5-9b6bff" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.6-9b6bff" />
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%2F%2011-3a2170" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-React%20%2B%20TypeScript-1f1140" />
 </p>

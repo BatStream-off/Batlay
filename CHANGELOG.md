@@ -3,6 +3,13 @@
 Toutes les évolutions notables de Batlay. Le numéro de version suit `package.json`
 (vérifié par `tests/version.test.ts`).
 
+## 0.3.6
+
+### Modifié
+- **Icônes définitives** : ajout de la source vectorielle `assets/icon.svg` et d'une version `icon_2x.png` (1024 px) ;
+  `icon.png`, `icon.ico` et `favicon.png` sont mis à jour.
+- **Images de l'installateur** (`assets/installer/*.bmp`) mises à jour avec la nouvelle icône.
+
 ## 0.3.5
 
 ### Modifié (identité et documentation)
