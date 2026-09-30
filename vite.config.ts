@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 //  - index.html      -> le dashboard (Electron renderer)
 //  - overlay.html     -> la page d'overlay servie par le Batlay Overlay Server
 //                         et chargée par OBS Browser Source
+//  - twitch-overlay.html -> le chat Twitch, servi par le serveur Twitch (port 4000)
 export default defineConfig({
   plugins: [react()],
   base: "./",
@@ -22,6 +23,8 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, "index.html"),
         overlay: resolve(__dirname, "overlay.html"),
+        // Chat Twitch : page OBS servie par le serveur Twitch (port 4000), indépendante de l'overlay musical.
+        twitchOverlay: resolve(__dirname, "twitch-overlay.html"),
       },
     },
   },

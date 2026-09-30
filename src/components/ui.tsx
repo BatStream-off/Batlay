@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Check, ChevronDown, MoreHorizontal } from "lucide-react";
+import { computeMenuPlacement } from "@/utils/ui-helpers";
 
 /**
  * Briques d'interface partagées par toutes les pages. Elles n'existent que
@@ -258,5 +260,221 @@ export function DropdownMenu({ label, items }: { label: string; items: MenuItem[
         </>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Liste déroulante à hauteur limitée
+// ---------------------------------------------------------------------------
+
+export interface SelectOption {
+  value: string;
+  label: string;
+}
+
+interface SelectPlacement {
+  left: number;
+  width: number;
+  top?: number;
+  bottom?: number;
+  maxHeight: number;
+  openUp: boolean;
+}
+
+/**
+ * Remplace un <select> natif quand les libellés peuvent être longs et nombreux
+ * (sources multimédia Windows) : la liste native prend la hauteur et la largeur
+ * de son contenu et ne se contrôle pas en CSS. Ici la liste est plafonnée
+ * (`SELECT_MENU_MAX_HEIGHT`), défile au-delà, et chaque libellé est tronqué
+ * avec le texte complet en info-bulle.
+ *
+ * La liste est rendue dans <body> en position fixe : les cartes (`.card`) ont un
+ * `backdrop-filter`, donc leur propre contexte d'empilement, et la carte
+ * suivante recouvrirait une liste qui déborde.
+ *
+ * Clavier : focus sur le bouton, ↑/↓/Début/Fin pour naviguer, Entrée/Espace pour
+ * choisir, Échap pour fermer (motif « combobox » avec aria-activedescendant).
+ */
+export function SelectMenu({
+  id,
+  value,
+  options,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  options: SelectOption[];
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [placement, setPlacement] = useState<SelectPlacement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+
+  // Même comportement qu'un <select> : une valeur inconnue retombe sur la première option.
+  const selectedIndex = Math.max(0, options.findIndex((o) => o.value === value));
+  const listId = `${id}-list`;
+
+  function openMenu() {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const { openUp, maxHeight } = computeMenuPlacement(rect.top, rect.bottom, window.innerHeight);
+    setPlacement({
+      left: rect.left,
+      width: rect.width,
+      maxHeight,
+      openUp,
+      ...(openUp ? { bottom: window.innerHeight - rect.top + 4 } : { top: rect.bottom + 4 }),
+    });
+    setActive(selectedIndex);
+    setOpen(true);
+  }
+
+  function closeMenu(refocus: boolean) {
+    setOpen(false);
+    if (refocus) triggerRef.current?.focus();
+  }
+
+  function choose(index: number) {
+    const option = options[index];
+    if (option) onChange(option.value);
+    closeMenu(true);
+  }
+
+  // Fermeture au clic à l'extérieur, au redimensionnement et au défilement de
+  // la page (la liste est en position fixe : elle resterait à l'ancienne place).
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target) || listRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    function onScrollOrResize(e: Event) {
+      // Le défilement de la liste elle-même ne doit pas la fermer.
+      if (e.target instanceof Node && listRef.current?.contains(e.target)) return;
+      setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("resize", onScrollOrResize);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("resize", onScrollOrResize);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+    };
+  }, [open]);
+
+  // L'option active (clavier) reste visible dans la liste défilante.
+  useEffect(() => {
+    if (!open) return;
+    (listRef.current?.children[active] as HTMLElement | undefined)?.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
+
+  function onKeyDown(e: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (!open) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        openMenu();
+      }
+      return;
+    }
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        setActive((i) => Math.min(options.length - 1, i + 1));
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        setActive((i) => Math.max(0, i - 1));
+        break;
+      case "Home":
+        e.preventDefault();
+        setActive(0);
+        break;
+      case "End":
+        e.preventDefault();
+        setActive(options.length - 1);
+        break;
+      case "Enter":
+      case " ":
+        // Sans preventDefault, le clic natif du bouton rouvrirait aussitôt la liste.
+        e.preventDefault();
+        choose(active);
+        break;
+      case "Escape":
+        e.preventDefault();
+        e.stopPropagation();
+        closeMenu(true);
+        break;
+      case "Tab":
+        setOpen(false);
+        break;
+    }
+  }
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        id={id}
+        type="button"
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-activedescendant={open ? `${id}-opt-${active}` : undefined}
+        onClick={() => (open ? closeMenu(false) : openMenu())}
+        onKeyDown={onKeyDown}
+        onKeyUp={(e) => {
+          if (e.key === " ") e.preventDefault();
+        }}
+        className={`flex w-full items-center justify-between gap-2 rounded-lg border bg-base-800 px-3 py-2 text-left text-sm text-fg transition-colors hover:border-base-600 focus-visible:outline-none focus-visible:border-signal-500 focus-visible:ring-[3px] focus-visible:ring-signal-500/20 ${
+          open ? "border-signal-500" : "border-base-700"
+        }`}
+      >
+        <span className="min-w-0 flex-1 truncate">{options[selectedIndex]?.label ?? ""}</span>
+        <ChevronDown size={14} className={`shrink-0 text-muted transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open &&
+        placement &&
+        createPortal(
+          <ul
+            ref={listRef}
+            id={listId}
+            role="listbox"
+            className="menu-pop fixed z-50 overflow-y-auto rounded-xl border border-base-700 bg-base-900 p-1 shadow-pop"
+            style={{
+              left: placement.left,
+              width: placement.width,
+              top: placement.top,
+              bottom: placement.bottom,
+              maxHeight: placement.maxHeight,
+              transformOrigin: placement.openUp ? "bottom center" : "top center",
+            }}
+          >
+            {options.map((option, index) => (
+              <li
+                key={index}
+                id={`${id}-opt-${index}`}
+                role="option"
+                aria-selected={index === selectedIndex}
+                title={option.label}
+                onPointerEnter={() => setActive(index)}
+                onClick={() => choose(index)}
+                className={`flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-fg transition-colors ${
+                  index === active ? "bg-base-800" : ""
+                }`}
+              >
+                <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                {index === selectedIndex && <Check size={14} className="shrink-0 text-accent" />}
+              </li>
+            ))}
+          </ul>,
+          document.body
+        )}
+    </>
   );
 }

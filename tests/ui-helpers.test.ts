@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  SELECT_MENU_MAX_HEIGHT,
   ZOOM_MAX,
   ZOOM_MIN,
   clampZoom,
+  computeMenuPlacement,
   formatRelativeDate,
   pickMainOverlay,
   stepZoom,
@@ -93,5 +95,27 @@ describe("formatRelativeDate", () => {
   it("un horodatage absent (0) ne produit aucun texte, et une horloge en retard ne donne pas de valeur négative", () => {
     expect(formatRelativeDate(0, now)).toBe("");
     expect(formatRelativeDate(now + 5_000, now)).toBe("à l'instant");
+  });
+});
+
+describe("computeMenuPlacement", () => {
+  it("ouvre vers le bas avec la hauteur maximale quand la place suffit", () => {
+    expect(computeMenuPlacement(100, 140, 900)).toEqual({ openUp: false, maxHeight: SELECT_MENU_MAX_HEIGHT });
+  });
+
+  it("ouvre vers le haut quand il manque de la place dessous et qu'il y en a plus dessus", () => {
+    const placement = computeMenuPlacement(700, 740, 800);
+    expect(placement.openUp).toBe(true);
+    expect(placement.maxHeight).toBe(SELECT_MENU_MAX_HEIGHT);
+  });
+
+  it("reste vers le bas mais réduit la hauteur si aucun côté n'a assez de place", () => {
+    const placement = computeMenuPlacement(150, 190, 400);
+    expect(placement.openUp).toBe(false);
+    expect(placement.maxHeight).toBe(202);
+  });
+
+  it("ne descend jamais sous le plancher d'utilisabilité", () => {
+    expect(computeMenuPlacement(10, 50, 60).maxHeight).toBe(80);
   });
 });

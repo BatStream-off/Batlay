@@ -1,0 +1,68 @@
+/* Overlay de chat Twitch — feuille autonome (aucun lien avec la charte du dashboard). */
+.chat {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end; /* le message le plus récent reste en bas */
+  align-items: flex-start;
+  gap: 0.3em;
+  padding: 0.4em;
+  overflow: hidden;
+  color: #fff;
+  font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  font-weight: 600;
+  line-height: 1.32;
+  /* Lisible sur n'importe quel jeu : contour doux + ombre portée. */
+  text-shadow: 0 0 0.16em #000, 0 0.05em 0.1em rgba(0, 0, 0, 0.95), 0 0 0.45em rgba(0, 0, 0, 0.6);
+}
+
+/* Réglages « sans ombre » et « nouveaux messages en haut ». */
+.chat--flat { text-shadow: none; }
+.chat--top { justify-content: flex-start; }
+
+.msg {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  animation: msg-in 180ms ease-out;
+}
+
+.chat--bg .msg {
+  padding: 0.22em 0.6em;
+  border-radius: 0.5em;
+  background: rgba(10, 10, 15, var(--bg-alpha, 0.58));
+}
+
+/* Premier message d'un spectateur / message mis en avant : un simple filet, sans cri. */
+.msg--first,
+.msg--channel_points,
+.msg--cheer {
+  padding-left: 0.5em;
+  border-left: 0.2em solid #9b6bff;
+}
+.msg--cheer { border-left-color: #f5c542; }
+
+.badge {
+  width: 1.1em;
+  height: 1.1em;
+  margin-right: 0.25em;
+  vertical-align: -0.2em;
+}
+
+.name { font-weight: 800; }
+.reply { opacity: 0.75; font-weight: 600; }
+.mention { font-weight: 800; }
+.emote {
+  height: 1.55em;
+  margin: -0.25em 0.04em;
+  vertical-align: middle;
+}
+
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(0.4em); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg { animation: none; }
+}

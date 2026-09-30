@@ -12,7 +12,8 @@ import { parseOverlayImport } from "@/utils/overlay-import";
 import type { OverlayConfig, PresetId } from "@/types/overlay";
 import { OverlayPreview } from "@/components/OverlayPreview";
 import { RegenerateObsLinkModal } from "@/components/RegenerateObsLinkModal";
-import { Button, DropdownMenu, Modal, PageHeader, StatusPill } from "@/components/ui";
+import { Button, DropdownMenu, Modal, PageHeader, SectionTitle, StatusPill } from "@/components/ui";
+import { ChatOverlaySection } from "@/components/ChatOverlaySection";
 
 const PRESET_LABELS: Record<PresetId, string> = {
   minimal: "Minimal",
@@ -147,9 +148,12 @@ export function Overlays() {
 
   return (
     <div className="stagger mx-auto max-w-5xl px-8 py-10">
-      <PageHeader
-        title="Mes overlays"
-        subtitle={overlays.length === 0 ? "Aucun overlay pour l'instant" : `${overlays.length} overlay${overlays.length > 1 ? "s" : ""}`}
+      <PageHeader title="Overlays" subtitle="Vos overlays OBS, par type : la musique et le chat sont indépendants." />
+
+      {/* --- Section Musique : contenu inchangé (grille, éditeur, import/export) --- */}
+      <SectionTitle
+        className="mt-8"
+        hint={overlays.length === 0 ? "Aucun overlay pour l'instant" : `${overlays.length} overlay${overlays.length > 1 ? "s" : ""}`}
         actions={
           <>
             <Button onClick={() => importInputRef.current?.click()} title="Importer un overlay exporté (.json)">
@@ -160,11 +164,13 @@ export function Overlays() {
             </Button>
           </>
         }
-      />
+      >
+        Musique
+      </SectionTitle>
       <input ref={importInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => void handleImportFile(e)} />
 
       {overlays.length === 0 ? (
-        <div className="mt-12 flex flex-col items-center gap-3 rounded-xl2 border border-dashed border-line py-16 text-center">
+        <div className="mt-6 flex flex-col items-center gap-3 rounded-xl2 border border-dashed border-line py-16 text-center">
           <p className="text-sm font-medium text-fg">Créez votre premier overlay</p>
           <p className="max-w-sm text-xs text-muted">
             Choisissez un preset (Minimal, Glass, Neon...) ou partez d'un canvas vide, puis ajustez chaque élément dans l'éditeur.
@@ -179,7 +185,7 @@ export function Overlays() {
           </div>
         </div>
       ) : (
-        <div className="stagger mt-8 grid grid-cols-2 gap-4 lg:grid-cols-3">
+        <div className="stagger mt-4 grid grid-cols-2 gap-4 lg:grid-cols-3">
           {overlays.map((overlay) => {
             const isMain = mainId === overlay.id;
             const modified = formatRelativeDate(overlay.updatedAt);
@@ -245,6 +251,17 @@ export function Overlays() {
           L'overlay « Principal » est celui dont l'URL OBS est proposée dans la barre latérale et le tableau de bord.
         </p>
       )}
+
+      {/* --- Section Chat : overlays de type chat (réglés ici, servis par le serveur Twitch) --- */}
+      <SectionTitle
+        className="mt-12"
+        hint="Le compte et la connexion se gèrent dans la section Chat du menu."
+      >
+        Chat
+      </SectionTitle>
+      <div className="mt-4">
+        <ChatOverlaySection />
+      </div>
 
       {pickerOpen && (
         <Modal title="Nouvel overlay" onClose={closePicker} widthClass="w-[760px]">

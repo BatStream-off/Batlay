@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Servie depuis /overlay/chat par le serveur Twitch (port 4000) : sans <base href="/">,
+         "./assets/..." serait résolu contre /overlay/ et l'overlay resterait vide dans OBS. -->
+    <base href="/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Batlay · Chat Twitch</title>
+    <style>
+      /* Fond transparent obligatoire pour une source Navigateur d'OBS */
+      html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+      #twitch-overlay-root { width: 100vw; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="twitch-overlay-root"></div>
+    <script type="module" src="/twitch-overlay/main.tsx"></script>
+  </body>
+</html>

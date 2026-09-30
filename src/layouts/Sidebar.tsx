@@ -1,18 +1,22 @@
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { ArrowUpCircle, Link2, LayoutDashboard, Layers, PanelLeftClose, PanelLeftOpen, Plug, SlidersHorizontal } from "lucide-react";
+import { ArrowUpCircle, Link2, LayoutDashboard, Layers, MessageSquare, Music2, PanelLeftClose, PanelLeftOpen, Plug, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useMusicStore } from "@/stores/useMusicStore";
 import { useOverlayStore } from "@/stores/useOverlayStore";
 import { useUpdateStore } from "@/stores/useUpdateStore";
+import { useTwitchStore } from "@/stores/useTwitchStore";
+import { NAV_GROUPS } from "@/layouts/nav";
 import { useCopyObsUrl } from "@/hooks/useCopyObsUrl";
 import { pickMainOverlay } from "@/utils/ui-helpers";
 
-const NAV_ITEMS = [
-  { to: "/", label: "Tableau de bord", icon: LayoutDashboard },
-  { to: "/overlays", label: "Overlays", icon: Layers },
-  { to: "/connections", label: "Connexions", icon: Plug },
-  { to: "/settings", label: "Paramètres", icon: SlidersHorizontal },
-];
+const NAV_ICONS: Record<string, LucideIcon> = {
+  "/": LayoutDashboard,
+  "/musique": Music2,
+  "/overlays": Layers,
+  "/connections": Plug,
+  "/chat": MessageSquare,
+  "/settings": SlidersHorizontal,
+};
 
 const SOURCE_LABELS: Record<string, string> = {
   spotify: "Spotify connecté",
@@ -33,6 +37,7 @@ export function Sidebar({ compact, onToggleCompact }: SidebarProps) {
   const activeProviderId = useMusicStore((s) => s.activeProviderId);
   const { overlays, activeOverlayId } = useOverlayStore((s) => ({ overlays: s.overlays, activeOverlayId: s.activeOverlayId }));
   const isPlaying = useMusicStore((s) => s.playbackState.track?.isPlaying ?? false);
+  const twitch = useTwitchStore((s) => s.state);
   const updateStatus = useUpdateStore((s) => s.status);
   const updateReady = updateStatus.state === "available" || updateStatus.state === "downloaded";
   const updateVersion = updateStatus.state === "available" || updateStatus.state === "downloaded" ? updateStatus.version : "";
@@ -74,7 +79,14 @@ export function Sidebar({ compact, onToggleCompact }: SidebarProps) {
       </div>
 
       <nav className={`flex flex-1 flex-col gap-1 ${compact ? "px-2" : "px-3"}`} aria-label="Navigation principale">
-        {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
+        {NAV_GROUPS.map((group, groupIndex) => (
+          <div key={group.id} className={`flex flex-col gap-1 ${groupIndex > 0 ? (compact ? "mt-2" : "mt-4") : ""}`}>
+            {/* Barre étroite : un fin trait sépare les blocs (l'espace seul est trop discret entre des icônes). */}
+            {compact && groupIndex > 0 && <div className="mx-2 mb-1 border-t border-line/60" aria-hidden="true" />}
+            {!compact && group.label && <p className="px-3 pb-0.5 pt-2 text-xs font-medium text-faint">{group.label}</p>}
+            {group.items.map(({ to, label }) => {
+              const Icon = NAV_ICONS[to];
+              return (
           <NavLink
             key={to}
             to={to}
@@ -110,6 +122,9 @@ export function Sidebar({ compact, onToggleCompact }: SidebarProps) {
               );
             }}
           </NavLink>
+              );
+            })}
+          </div>
         ))}
       </nav>
 
@@ -168,6 +183,7 @@ export function Sidebar({ compact, onToggleCompact }: SidebarProps) {
           dotClass={activeProviderId ? "dot-live" : "bg-amber-400"}
           label={sourceLabel}
         />
+        <StatusLink to="/chat" compact={compact} {...chatIndicator(twitch)} />
 
         {onToggleCompact && compact && (
           <button
@@ -197,4 +213,15 @@ function StatusLink({ to, dotClass, label, compact }: { to: string; dotClass: st
       {!compact && <span className="truncate">{label}</span>}
     </Link>
   );
+}
+
+/** Pastille d'état du chat Twitch (indépendante de l'état de la musique). */
+function chatIndicator(t: ReturnType<typeof useTwitchStore.getState>["state"]): { dotClass: string; label: string } {
+  if (!t.server.running) return { dotClass: "bg-red-500", label: "Serveur chat hors ligne" };
+  if (t.status === "connected" && t.chat === "live") {
+    return { dotClass: "dot-live", label: t.channel ? `Chat de ${t.channel.displayName} en direct` : "Chat Twitch en direct" };
+  }
+  if (t.status === "connected" && t.error) return { dotClass: "bg-amber-400", label: "Chat Twitch : chaîne à corriger" };
+  if (t.status === "connected") return { dotClass: "bg-amber-400", label: "Chat Twitch : connexion…" };
+  return { dotClass: "bg-amber-400", label: "Chat Twitch déconnecté" };
 }

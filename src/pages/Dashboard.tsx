@@ -42,7 +42,7 @@ export function Dashboard() {
   return (
     <div className="stagger mx-auto max-w-3xl px-8 py-10">
       <PageHeader
-        title="Tableau de bord"
+        title="Musique"
         subtitle={
           ready
             ? "Votre musique est prête à être affichée dans OBS."

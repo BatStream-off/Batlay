@@ -191,7 +191,7 @@ export function Settings() {
       <section className="mt-4 card p-6">
         <SectionTitle className="mb-2">À propos</SectionTitle>
         <p className="text-sm text-fg">Batlay</p>
-        <p className="text-xs text-muted">Version 0.3.0</p>
+        <p className="text-xs text-muted">Version 0.3.5</p>
         <p className="text-xs text-muted">Créateur : Adilbl</p>
       </section>
 

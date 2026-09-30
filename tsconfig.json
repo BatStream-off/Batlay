@@ -21,6 +21,6 @@
       "@overlay/*": ["overlay/*"]
     }
   },
-  "include": ["src", "overlay"],
+  "include": ["src", "overlay", "twitch-overlay"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

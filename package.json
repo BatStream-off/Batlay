@@ -1,8 +1,8 @@
 {
   "name": "batlay",
   "productName": "Batlay",
-  "version": "0.3.0",
-  "description": "Batlay - Application desktop d'overlay musical pour le streaming (OBS)",
+  "version": "0.3.5",
+  "description": "Batlay - Application desktop d'overlays pour le streaming (OBS) : musique en cours et chat Twitch",
   "author": "Adil",
   "main": "dist-electron/main/index.js",
   "type": "module",
@@ -84,7 +84,17 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Batlay"
+      "shortcutName": "Batlay",
+      "language": "1036",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "installerSidebar": "assets/installer/installerSidebar.bmp",
+      "uninstallerSidebar": "assets/installer/uninstallerSidebar.bmp",
+      "installerHeader": "assets/installer/installerHeader.bmp",
+      "uninstallDisplayName": "Batlay",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
     },
     "publish": [
       {

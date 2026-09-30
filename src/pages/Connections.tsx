@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useMusicStore } from "@/stores/useMusicStore";
 import { useToastStore } from "@/stores/useToastStore";
 import { useSettingsStore } from "@/stores/useSettingsStore";
-import { Button, PageHeader, StatusPill } from "@/components/ui";
+import { Button, PageHeader, SelectMenu, StatusPill, type SelectOption } from "@/components/ui";
 
 const inputClass =
   "rounded-lg border border-base-700 bg-base-800 px-3 py-2 text-sm text-fg outline-none focus:border-signal-500";
@@ -70,6 +70,14 @@ export function Connections() {
     systemMediaProvider.setPreferredSession(value);
     await updateSettings({ preferredSystemMediaAppId: value });
   }
+
+  const sessionOptions: SelectOption[] = [
+    { value: "", label: "Automatique (suit le focus multimédia Windows)" },
+    ...sessions.map((s) => ({
+      value: s.sourceAppId ?? "",
+      label: `${s.sourceAppId ?? "?"} — ${s.title || "Titre inconnu"}${s.artist ? ` · ${s.artist}` : ""}`,
+    })),
+  ];
 
   async function handleSystemMediaConnect() {
     try {
@@ -149,20 +157,13 @@ export function Connections() {
                 {loadingSessions ? "Recherche..." : "Rafraîchir"}
               </button>
             </div>
-            <select
+            {/* Liste à hauteur plafonnée : avec beaucoup de lecteurs actifs, le <select> natif devenait interminable. */}
+            <SelectMenu
               id="system-media-session"
               value={settings?.preferredSystemMediaAppId ?? ""}
-              onChange={(e) => void handleSelectSession(e.target.value)}
-              className={`w-full ${inputClass}`}
-            >
-              <option value="">Automatique (suit le focus multimédia Windows)</option>
-              {sessions.map((s) => (
-                <option key={s.sourceAppId ?? s.title} value={s.sourceAppId ?? ""}>
-                  {s.sourceAppId ?? "?"} — {s.title || "Titre inconnu"}
-                  {s.artist ? ` · ${s.artist}` : ""}
-                </option>
-              ))}
-            </select>
+              options={sessionOptions}
+              onChange={(value) => void handleSelectSession(value)}
+            />
             {sessions.length === 0 && !loadingSessions && (
               <p className="text-xs text-faint">
                 Aucun lecteur actif détecté pour le moment. Lancez une lecture puis cliquez sur « Rafraîchir ».
