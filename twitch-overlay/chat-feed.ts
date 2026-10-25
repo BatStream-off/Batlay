@@ -1,17 +1,23 @@
 import type { ChatMessage } from "../electron/shared/twitch";
+import { isEnterEffect, isExitEffect, type EnterEffectId, type ExitEffectId, type MotionSpec } from "../src/animation/config";
 
 /**
  * Logique de l'overlay de chat, SANS React ni DOM (testée dans
- * tests/twitch-chat-feed.test.ts). Aucun import du reste de Batlay :
- * cette page n'a rien en commun avec l'overlay musical.
+ * tests/twitch-chat-feed.test.ts). Seul import du reste de Batlay : le moteur
+ * d'animations commun (src/animation/), sans aucun lien avec l'overlay musical.
  */
 
 // ---------------------------------------------------------------------------
 // Réglages passés dans l'URL de la source OBS :
 // ?size=24&max=15&fade=30&badges=0&bg=1&opacity=70&font=mono&shadow=0&nocmd=1&top=1&w=420&h=640
+// Animations : &anim=pop&out=slideLeft&ad=300&motion=on
 // ---------------------------------------------------------------------------
 
 export type ChatFont = "segoe" | "arial" | "serif" | "mono";
+
+/** `auto` : respecte « réduire les animations » du système · `on` : toujours animé · `off` : jamais. */
+export type ChatMotion = "auto" | "on" | "off";
+const CHAT_MOTIONS: readonly ChatMotion[] = ["auto", "on", "off"];
 
 /** Polices système uniquement : la source Navigateur d'OBS ne charge rien d'extérieur. */
 export const FONT_STACKS: Record<ChatFont, string> = {
@@ -44,6 +50,13 @@ export interface OverlayOptions {
   width: number;
   /** Hauteur de la zone de chat en px (0 = toute la hauteur de la source OBS). */
   height: number;
+  /** Animation d'arrivée d'un message (`none` = aucune). */
+  enterEffect: EnterEffectId;
+  /** Animation de départ (disparition automatique, trop de messages) ; `none` = retrait immédiat. */
+  exitEffect: ExitEffectId;
+  /** Durée des animations, en ms. */
+  animMs: number;
+  motion: ChatMotion;
 }
 
 export const DEFAULT_OPTIONS: OverlayOptions = {
@@ -59,6 +72,11 @@ export const DEFAULT_OPTIONS: OverlayOptions = {
   newestTop: false,
   width: 0,
   height: 0,
+  // Arrivée : équivalent exact de l'ancienne animation CSS (montée de 0,4 em, 180 ms, ease-out).
+  enterEffect: "slideUp",
+  exitEffect: "fade",
+  animMs: 180,
+  motion: "auto",
 };
 
 function intParam(params: URLSearchParams, key: string, fallback: number, min: number, max: number): number {
@@ -96,7 +114,16 @@ export function parseOverlayOptions(search: string): OverlayOptions {
     newestTop: flag(params, "top", DEFAULT_OPTIONS.newestTop),
     width: intParam(params, "w", DEFAULT_OPTIONS.width, 0, 3840),
     height: intParam(params, "h", DEFAULT_OPTIONS.height, 0, 2160),
+    enterEffect: effectParam(params, "anim", isEnterEffect, DEFAULT_OPTIONS.enterEffect),
+    exitEffect: effectParam(params, "out", isExitEffect, DEFAULT_OPTIONS.exitEffect),
+    animMs: intParam(params, "ad", DEFAULT_OPTIONS.animMs, 50, 2000),
+    motion: effectParam(params, "motion", (v): v is ChatMotion => (CHAT_MOTIONS as readonly string[]).includes(v as string), DEFAULT_OPTIONS.motion),
   };
+}
+
+function effectParam<T extends string>(params: URLSearchParams, key: string, valid: (v: unknown) => v is T, fallback: T): T {
+  const raw = params.get(key)?.trim();
+  return raw !== undefined && valid(raw) ? raw : fallback;
 }
 
 /** Opération inverse de parseOverlayOptions : n'écrit que ce qui diffère du défaut (URL courte et lisible). */
@@ -114,6 +141,10 @@ export function buildOverlaySearch(options: OverlayOptions): string {
   if (options.newestTop) params.set("top", "1");
   if (options.width > 0) params.set("w", String(options.width));
   if (options.height > 0) params.set("h", String(options.height));
+  if (options.enterEffect !== DEFAULT_OPTIONS.enterEffect) params.set("anim", options.enterEffect);
+  if (options.exitEffect !== DEFAULT_OPTIONS.exitEffect) params.set("out", options.exitEffect);
+  if (options.animMs !== DEFAULT_OPTIONS.animMs) params.set("ad", String(options.animMs));
+  if (options.motion !== DEFAULT_OPTIONS.motion) params.set("motion", options.motion);
   const query = params.toString();
   return query ? `?${query}` : "";
 }
@@ -216,4 +247,31 @@ export function readableNameColor(color: string | null, userId: string): string 
   }
   const h = (n: number) => n.toString(16).padStart(2, "0");
   return `#${h(r)}${h(g)}${h(b)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Animations des messages (moteur commun : src/animation/)
+// ---------------------------------------------------------------------------
+
+export interface ChatMotionSpecs {
+  enter: MotionSpec | null;
+  exit: MotionSpec | null;
+  /** Distance des glissements, en em : proportionnelle à la taille du texte. */
+  distance: (effect: string) => string;
+}
+
+/**
+ * Animations effectives d'un message. `reducedMotion` : réglage du système,
+ * ignoré seulement si l'URL demande `motion=on`.
+ */
+export function chatMotion(options: Pick<OverlayOptions, "enterEffect" | "exitEffect" | "animMs" | "motion">, reducedMotion: boolean): ChatMotionSpecs {
+  const off = options.motion === "off" || (options.motion === "auto" && reducedMotion);
+  const spec = (effect: string): MotionSpec | null =>
+    off || effect === "none" ? null : { effect, durationMs: options.animMs, delayMs: 0, easing: "ease-out", intensity: 0.3 };
+  return {
+    enter: spec(options.enterEffect),
+    exit: spec(options.exitEffect),
+    // 0,4 em vertical (ancienne animation CSS), 1,5 em horizontal : lisible sans balayer l'écran.
+    distance: (effect) => (effect === "slideLeft" || effect === "slideRight" ? "1.5em" : "0.4em"),
+  };
 }

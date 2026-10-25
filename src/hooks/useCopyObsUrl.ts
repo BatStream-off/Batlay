@@ -14,7 +14,8 @@ export function useCopyObsUrl() {
       try {
         const url = await window.batlay.overlay.getUrl(overlayId);
         await navigator.clipboard.writeText(url);
-        push("URL OBS copiée — collez-la dans une source « Navigateur » d'OBS.", "success");
+        // La même URL sert dans les autres logiciels : la page Intégrations explique où la coller.
+        push("URL copiée — collez-la dans une source « Navigateur » d'OBS (autres logiciels : voir Intégrations).", "success");
         return true;
       } catch (err) {
         push(

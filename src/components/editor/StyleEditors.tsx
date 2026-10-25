@@ -1,5 +1,5 @@
 import type { BorderConfig, FillConfig, ShadowConfig } from "@/types/overlay";
-import { defaultBorder, defaultFill, defaultShadow, fillToCss } from "@/utils/overlay-style";
+import { DEFAULT_ARTWORK_FILL, defaultBorder, defaultFill, defaultShadow, fillToCss, resolveArtworkFill } from "@/utils/overlay-style";
 import { ColorField, NumberField, SegmentedField, SelectField, SliderField, ToggleField } from "./fields";
 
 // Damier de la PASTILLE de couleur (élément d'interface qui montre la
@@ -34,6 +34,7 @@ export function FillEditor({
           { label: "Aucun", value: "none" },
           { label: "Uni", value: "solid" },
           { label: "Dégradé", value: "gradient" },
+          { label: "Pochette", value: "artwork", title: "Pochette du morceau en cours, agrandie et floutée" },
         ]}
       />
 
@@ -44,6 +45,41 @@ export function FillEditor({
           </div>
 
           {fill.mode === "solid" && <ColorField label="Couleur" value={fill.color} onChange={(color) => set({ color })} />}
+
+          {fill.mode === "artwork" && (
+            <>
+              <SliderField
+                label="Flou"
+                value={resolveArtworkFill(fill).blur}
+                min={0}
+                max={60}
+                format={(v) => `${v} px`}
+                onChange={(blur) => set({ artwork: { ...resolveArtworkFill(fill), blur } })}
+              />
+              <SliderField
+                label="Zoom"
+                value={resolveArtworkFill(fill).zoom}
+                min={1}
+                max={2.5}
+                step={0.05}
+                format={(v) => `${Math.round(v * 100)} %`}
+                onChange={(zoom) => set({ artwork: { ...resolveArtworkFill(fill), zoom } })}
+              />
+              <SliderField
+                label="Assombrissement"
+                value={resolveArtworkFill(fill).dim}
+                min={0}
+                max={0.9}
+                step={0.05}
+                format={pct}
+                onChange={(dim) => set({ artwork: { ...resolveArtworkFill(fill), dim } })}
+              />
+              <ColorField label="Couleur sans pochette" value={fill.color} onChange={(color) => set({ color })} />
+              <p className="text-[10px] text-faint">
+                L'image change avec un fondu à chaque morceau. Flou conseillé : {DEFAULT_ARTWORK_FILL.blur} px ; au-delà de 40 px, l'effet coûte plus au GPU.
+              </p>
+            </>
+          )}
 
           {fill.mode === "gradient" && (
             <>

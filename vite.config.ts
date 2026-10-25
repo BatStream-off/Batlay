@@ -25,6 +25,8 @@ export default defineConfig({
         overlay: resolve(__dirname, "overlay.html"),
         // Chat Twitch : page OBS servie par le serveur Twitch (port 4000), indépendante de l'overlay musical.
         twitchOverlay: resolve(__dirname, "twitch-overlay.html"),
+        // Alertes (follows, abonnements) : page servie par le serveur d'overlay, /alerts.
+        alerts: resolve(__dirname, "alerts.html"),
       },
     },
   },

@@ -29,7 +29,9 @@ describe("buildAuthorizeUrl", () => {
     expect(url.searchParams.get("response_type")).toBe("token");
     expect(url.searchParams.get("client_id")).toBe(TWITCH_CLIENT_ID);
     expect(url.searchParams.get("redirect_uri")).toBe("http://localhost:4000");
-    expect(url.searchParams.get("scope")).toBe("user:read:chat");
+    // Chat (obligatoire) + alertes (facultatives, lecture seule) : aucune permission d'écriture.
+    expect(url.searchParams.get("scope")).toBe("user:read:chat moderator:read:followers channel:read:subscriptions");
+    expect(url.searchParams.get("scope")).not.toMatch(/:(edit|manage|write)|chat:edit|whispers/);
     expect(url.searchParams.get("state")).toBe(STATE);
   });
 

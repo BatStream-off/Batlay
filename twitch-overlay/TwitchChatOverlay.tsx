@@ -1,6 +1,10 @@
-import React, { useEffect, useReducer, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { TWITCH_WS_PATH, type ChatFragment, type ChatMessage, type OverlayMessage } from "../electron/shared/twitch";
-import { FONT_STACKS, createFeedReducer, emoteUrl, parseOverlayOptions, readableNameColor } from "./chat-feed";
+import { FONT_STACKS, chatMotion, createFeedReducer, emoteUrl, parseOverlayOptions, readableNameColor, type FeedAction, type FeedItem } from "./chat-feed";
+import { reconcilePresence, removeLeaving, type Presence } from "../src/animation/presence";
+import { prefersReducedMotion, watchReducedMotion } from "../src/animation/engine";
+import type { MotionSpec } from "../src/animation/config";
+import { useListItemMotion } from "../src/animation/react";
 
 /**
  * Page chargée par la source Navigateur d'OBS (http://localhost:4000/overlay/chat).
@@ -12,9 +16,41 @@ import { FONT_STACKS, createFeedReducer, emoteUrl, parseOverlayOptions, readable
 const options = parseOverlayOptions(window.location.search);
 const reducer = createFeedReducer(options);
 
+/** Sortants simultanés au plus : sous un flot de messages, les plus anciens partent sans attendre. */
+const MAX_LEAVING = 8;
+
 export function TwitchChatOverlay() {
-  const [items, dispatch] = useReducer(reducer, []);
+  const [items, rawDispatch] = useReducer(reducer, []);
   const [badges, setBadges] = useState<Record<string, string>>({});
+  const [reducedMotion, setReducedMotion] = useState(() => prefersReducedMotion());
+  useEffect(() => watchReducedMotion(setReducedMotion), []);
+  // Stable tant que le réglage système ne change pas : les effets qui en dépendent ne se relancent pas à chaque rendu.
+  const motion = useMemo(() => chatMotion(options, reducedMotion), [reducedMotion]);
+  const animateExit = motion.exit !== null;
+
+  // --- Présence : un message retiré des données reste affiché le temps de son animation de sortie. ---
+  const itemsRef = useRef<FeedItem[]>(items);
+  itemsRef.current = items;
+  /** Retraits à faire SANS animation : modération (message supprimé, chat vidé) — le texte doit disparaître tout de suite. */
+  const instantRef = useRef<Set<string> | "all">(new Set());
+  /** Messages rejoués à la (re)connexion : affichés sans animation d'entrée (pas de cascade au chargement). */
+  const noEnterRef = useRef<Set<string>>(new Set());
+  const dispatch = useCallback((action: FeedAction) => {
+    if (action.type === "delete") addInstant(instantRef, [action.messageId]);
+    else if (action.type === "clear_user") addInstant(instantRef, itemsRef.current.filter((i) => i.message.userId === action.userId).map((i) => i.message.id));
+    else if (action.type === "clear" || action.type === "backlog") instantRef.current = "all";
+    if (action.type === "backlog") noEnterRef.current = new Set(action.messages.map((m) => m.id));
+    rawDispatch(action);
+  }, []);
+  const [rendered, setRendered] = useState<Presence<FeedItem>[]>([]);
+  useLayoutEffect(() => {
+    const instant = instantRef.current;
+    instantRef.current = new Set();
+    setRendered((prev) =>
+      reconcilePresence(prev, items, (i) => i.message.id, { animateExit, instant, maxLeaving: MAX_LEAVING })
+    );
+  }, [items, animateExit]);
+  const onExited = useCallback((id: string) => setRendered((list) => removeLeaving(list, id)), []);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -85,7 +121,7 @@ export function TwitchChatOverlay() {
     return () => clearInterval(id);
   }, []);
 
-  const ordered = options.newestTop ? [...items].reverse() : items;
+  const ordered = options.newestTop ? [...rendered].reverse() : rendered;
   const className = ["chat", options.background && "chat--bg", !options.shadow && "chat--flat", options.newestTop && "chat--top"]
     .filter(Boolean)
     .join(" ");
@@ -104,16 +140,56 @@ export function TwitchChatOverlay() {
 
   return (
     <div className={className} style={style}>
-      {ordered.map(({ message }) => (
-        <MessageRow key={message.id} message={message} badges={badges} />
+      {ordered.map(({ id, item, leaving }) => (
+        <MessageRow
+          key={id}
+          message={item.message}
+          badges={badges}
+          leaving={leaving}
+          enter={noEnterRef.current.has(id) ? null : motion.enter}
+          exit={motion.exit}
+          distance={motion.distance}
+          onExited={onExited}
+        />
       ))}
     </div>
   );
 }
 
-function MessageRow({ message, badges }: { message: ChatMessage; badges: Record<string, string> }) {
+function addInstant(ref: { current: Set<string> | "all" }, ids: string[]) {
+  if (ref.current === "all") return;
+  for (const id of ids) ref.current.add(id);
+}
+
+function MessageRow({
+  message,
+  badges,
+  leaving,
+  enter,
+  exit,
+  distance,
+  onExited,
+}: {
+  message: ChatMessage;
+  badges: Record<string, string>;
+  leaving: boolean;
+  enter: MotionSpec | null;
+  exit: MotionSpec | null;
+  distance: (effect: string) => string;
+  onExited: (id: string) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const spec = leaving ? exit : enter;
+  useListItemMotion(ref, {
+    leaving,
+    enter,
+    exit,
+    onExited: () => onExited(message.id),
+    effectContext: spec ? { distance: distance(spec.effect) } : undefined,
+  });
   return (
-    <div className={`msg msg--${message.highlight}`}>
+    // Un message sortant reste à sa place dans la liste (aucun chevauchement) et n'est plus lu par les lecteurs d'écran.
+    <div ref={ref} className={`msg msg--${message.highlight}`} aria-hidden={leaving || undefined}>
       {options.showBadges &&
         message.badges.map((badge) => {
           const url = badges[`${badge.setId}/${badge.id}`];

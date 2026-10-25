@@ -1,13 +1,19 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import type { OverlayConfig, OverlayComponentConfig } from "@/types/overlay";
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { AnimatedSwap, useAnimationEnvironment } from "@/animation/react";
+import { normalizeOverlayAnimation, resolveComponentMotion } from "@/animation/config";
+import { isMotionAllowed } from "@/animation/engine";
+import { componentContentKey, NO_TRACK_KEY } from "@/utils/overlay-motion";
+import type { FillConfig, OverlayConfig, OverlayComponentConfig } from "@/types/overlay";
 import type { Track } from "@/types/track";
 import type { ProgressReader } from "@/utils/progress-clock";
 import { LiveProgressFill, LiveTimeText } from "@/components/LiveProgress";
 import { formatArtists } from "@/utils/artists";
 import { formatTime } from "@/utils/format-time";
 import {
+  artworkBackdropStyle,
   canvasFrameStyle,
   componentBoxStyle,
+  resolveFill,
   renderTemplate,
   textBoxStyle,
 } from "@/utils/overlay-style";
@@ -42,6 +48,34 @@ export const SAMPLE_TRACK: Track = {
   source: "Spotify",
   duration: 230_000,
   progress: 84_000,
+  isPlaying: true,
+};
+
+/** Pochette d'exemple (SVG en data URI : aucun fichier, aucune requête réseau), pour l'aperçu de l'éditeur. */
+function sampleArtwork(a: string, b: string, c: string): string {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+    `<stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs>` +
+    `<rect width="300" height="300" fill="url(#g)"/><circle cx="210" cy="95" r="70" fill="${c}" opacity=".75"/>` +
+    `<circle cx="80" cy="230" r="110" fill="${b}" opacity=".5"/></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+export const SAMPLE_ARTWORKS = [sampleArtwork("#ff5f6d", "#3a1c71", "#ffc371"), sampleArtwork("#0bd3d3", "#1d2b64", "#f8cdda")] as const;
+
+/**
+ * Second morceau d'exemple : l'éditeur alterne entre les deux pour montrer la
+ * transition (« Tester la transition »). Accents et deux artistes : on voit
+ * aussi qu'ils survivent à l'animation.
+ */
+export const SAMPLE_TRACK_ALT: Track = {
+  id: "sample-alt",
+  title: "Tout oublier",
+  artist: "Angèle, Roméo Elvis",
+  artists: ["Angèle", "Roméo Elvis"],
+  album: "Brol",
+  source: "Spotify",
+  duration: 213_000,
+  progress: 61_000,
   isPlaying: true,
 };
 
@@ -236,6 +270,12 @@ export function OverlayCanvas({
   reader?: ProgressReader | null;
 }) {
   const { canvasWidth, canvasHeight, borderRadius } = overlay.theme;
+  const env = useAnimationEnvironment();
+  const settings = normalizeOverlayAnimation(overlay.animations);
+  const motionAllowed = isMotionAllowed(settings, env.reducedMotion);
+  const frameMotion = resolveComponentMotion(overlay.animations, undefined, { motionAllowed });
+  const components = [...overlay.components].filter((c) => c.visible).sort((a, b) => a.order - b.order);
+  const frameArtwork = overlay.theme.background?.mode === "artwork";
   return (
     <div
       style={{
@@ -247,21 +287,99 @@ export function OverlayCanvas({
         borderRadius: borderRadius || undefined,
       }}
     >
-      {track && (
-        <>
-          <style>{MARQUEE_KEYFRAMES}</style>
-          <div style={canvasFrameStyle(overlay.theme)} />
-          {[...overlay.components]
-            .filter((c) => c.visible)
-            .sort((a, b) => a.order - b.order)
-            .map((component) => (
-              <div key={component.id} style={componentStyle(component)}>
-                {componentContent(component, track, reader)}
-              </div>
-            ))}
-        </>
-      )}
+      {track && <style>{MARQUEE_KEYFRAMES}</style>}
+      {/* Fond de l'overlay : apparaît / disparaît avec la musique ; en mode « pochette », fondu d'une pochette à l'autre. */}
+      <AnimatedSwap
+        swapKey={track ? (frameArtwork ? `artwork:${track.artwork ?? ""}` : "present") : NO_TRACK_KEY}
+        value={track}
+        render={(t) => (t ? (frameArtwork ? <ArtworkBackdrop fill={overlay.theme.background!} src={t.artwork} /> : "") : null)}
+        layerStyle={frameArtwork ? { ...canvasFrameStyle(overlay.theme), isolation: "isolate" } : canvasFrameStyle(overlay.theme)}
+        enter={frameMotion.enter}
+        exit={frameMotion.exit}
+      />
+      {components.map((component, index) => (
+        <AnimatedComponent
+          key={component.id}
+          component={component}
+          index={index}
+          overlay={overlay}
+          track={track}
+          reader={reader}
+          motionAllowed={motionAllowed}
+        />
+      ))}
     </div>
+  );
+}
+
+/**
+ * Fond « pochette » : la pochette du morceau, agrandie et floutée, SOUS le
+ * contenu (z-index -1 dans un bloc isolé) et rognée aux bords du bloc. Sans
+ * pochette, il ne reste que la couleur de secours du fond.
+ */
+function ArtworkBackdrop({ fill, src }: { fill: FillConfig; src?: string }) {
+  if (!src) return null;
+  return (
+    <span aria-hidden="true" style={{ position: "absolute", inset: 0, overflow: "hidden", borderRadius: "inherit", zIndex: -1, pointerEvents: "none" }}>
+      <img src={src} alt="" style={artworkBackdropStyle(fill)} />
+    </span>
+  );
+}
+
+/**
+ * Un composant de l'overlay, avec ses transitions (src/animation/). Hors
+ * contexte d'animation (miniatures, listes), rendu strictement identique à
+ * l'ancien : un seul bloc, aucune animation.
+ */
+function AnimatedComponent({
+  component,
+  index,
+  overlay,
+  track,
+  reader,
+  motionAllowed,
+}: {
+  component: OverlayComponentConfig;
+  index: number;
+  overlay: OverlayConfig;
+  track: Track | null;
+  reader?: ProgressReader | null;
+  motionAllowed: boolean;
+}) {
+  const motionKey = JSON.stringify([overlay.animations, component.animation, index, motionAllowed]);
+  // Recalculé seulement quand un réglage d'animation change, pas à chaque mesure de lecture.
+  const motion = useMemo(
+    () => resolveComponentMotion(overlay.animations, component.animation, { index, motionAllowed }),
+    // motionKey résume toutes les dépendances (réglages de l'overlay et du composant, rang, autorisation).
+    [motionKey]
+  );
+  const fill = resolveFill(component.style);
+  const artworkFill = fill?.mode === "artwork" ? fill : null;
+  const boxStyle = componentStyle(component);
+  return (
+    <AnimatedSwap
+      // Fond « pochette » : la clé suit aussi la pochette (fondu d'une image à l'autre, même pour une forme).
+      swapKey={componentContentKey(component, track) + (artworkFill && track ? `|bg:${track.artwork ?? ""}` : "")}
+      value={track}
+      // Une forme ou une barre n'a pas de contenu textuel : chaîne vide = bloc affiché quand même.
+      render={(t) =>
+        t ? (
+          artworkFill ? (
+            <>
+              <ArtworkBackdrop fill={artworkFill} src={t.artwork} />
+              {componentContent(component, t, reader)}
+            </>
+          ) : (
+            (componentContent(component, t, reader) ?? "")
+          )
+        ) : null
+      }
+      layerStyle={artworkFill ? { ...boxStyle, isolation: "isolate" } : boxStyle}
+      enter={motion.enter}
+      exit={motion.exit}
+      loop={motion.loop}
+      loopActive={track?.isPlaying ?? false}
+    />
   );
 }
 

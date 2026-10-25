@@ -9,7 +9,9 @@ import {
   Copy,
 } from "lucide-react";
 import type {
+  AnimationConfig,
   BorderConfig,
+  ComponentAnimation,
   ComponentStyle,
   ComponentTransform,
   FillConfig,
@@ -21,6 +23,7 @@ import type {
 import { FONT_OPTIONS, resolveBorder, resolveBoxShadow, resolveFill } from "@/utils/overlay-style";
 import { CANVAS_SIZES, COMPONENT_LABELS, type AlignKind } from "@/utils/overlay-model";
 import { BorderEditor, FillEditor, ShadowEditor } from "./StyleEditors";
+import { ComponentAnimationPanel, OverlayAnimationSection } from "./AnimationEditors";
 import { ColorField, NumberField, Section, SegmentedField, SelectField, SliderField, TextField, ToggleField } from "./fields";
 
 const TEXT_TYPES = new Set(["title", "artist", "album", "source", "elapsedTime", "remainingTime", "duration", "text"]);
@@ -47,9 +50,13 @@ interface PropertiesPanelProps {
   onAlign: (id: string, kind: AlignKind) => void;
   onPatchTheme: (patch: Partial<OverlayTheme>, key?: string) => void;
   onRenameOverlay: (name: string) => void;
+  onPatchAnimations: (next: AnimationConfig, key: string) => void;
+  onPatchComponentAnimation: (id: string, next: ComponentAnimation | undefined, key: string) => void;
+  /** Joue la transition dans l'aperçu (change le morceau d'exemple). */
+  onPreviewTransition: () => void;
 }
 
-type PropertiesTab = "general" | "style" | "appearance";
+type PropertiesTab = "general" | "style" | "appearance" | "animation";
 
 export function PropertiesPanel(props: PropertiesPanelProps) {
   const { selected } = props;
@@ -91,6 +98,7 @@ function ComponentProperties(
     { id: "general", label: "Général" },
     ...(hasStyleTab ? [{ id: "style" as const, label: styleTabLabel }] : []),
     { id: "appearance", label: "Apparence" },
+    { id: "animation", label: "Animation" },
   ];
   // Onglet mémorisé devenu inexistant (ex. « Texte » puis sélection d'une forme) : retour à « Général ».
   const activeTab = tabs.some((t) => t.id === tab) ? tab : "general";
@@ -110,6 +118,15 @@ function ComponentProperties(
           <SegmentedField value={activeTab} onChange={onTab} options={tabs.map((t) => ({ label: t.label, value: t.id }))} />
         </div>
       </div>
+
+      {activeTab === "animation" && (
+        <ComponentAnimationPanel
+          component={c}
+          overlayAnimations={props.overlay.animations}
+          onChange={(next, key) => props.onPatchComponentAnimation(c.id, next, key)}
+          onPreview={props.onPreviewTransition}
+        />
+      )}
 
       {activeTab === "general" && (
         <>
@@ -330,7 +347,7 @@ function ComponentProperties(
 // Overlay entier (aucune sélection)
 // ---------------------------------------------------------------------------
 
-function OverlayProperties({ overlay, obsUrl, onCopyUrl, onPatchTheme, onRenameOverlay }: PropertiesPanelProps) {
+function OverlayProperties({ overlay, obsUrl, onCopyUrl, onPatchTheme, onRenameOverlay, onPatchAnimations, onPreviewTransition }: PropertiesPanelProps) {
   const t = overlay.theme;
   const theme = (patch: Partial<OverlayTheme>, key?: string) => onPatchTheme(patch, key ?? `theme:${Object.keys(patch).join(",")}`);
   return (
@@ -374,6 +391,8 @@ function OverlayProperties({ overlay, obsUrl, onCopyUrl, onPatchTheme, onRenameO
       <Section title="Ombre" defaultOpen={false}>
         <ShadowEditor value={t.boxShadow} onChange={(boxShadow) => theme({ boxShadow }, "theme:shadow")} />
       </Section>
+
+      <OverlayAnimationSection value={overlay.animations} onChange={onPatchAnimations} onPreview={onPreviewTransition} />
 
       {obsUrl && (
         <div className="mt-2 border-t border-line pt-4">

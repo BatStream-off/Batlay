@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Copy, MessageSquare, RefreshCw, Send } from "lucide-react";
+import { Copy, MessageSquare, Play, RefreshCw, Send } from "lucide-react";
+import { playEnter, prefersReducedMotion } from "@/animation/engine";
+import { enterEffectOptions, exitEffectOptions } from "@/animation/effects";
 import { useTwitchStore } from "@/stores/useTwitchStore";
 import { useToastStore } from "@/stores/useToastStore";
 import { Button, SelectMenu, StatusPill } from "@/components/ui";
@@ -9,9 +11,11 @@ import {
   DEFAULT_OPTIONS,
   FONT_STACKS,
   buildOverlaySearch,
+  chatMotion,
   parseOverlayOptions,
   readableNameColor,
   type ChatFont,
+  type ChatMotion,
   type OverlayOptions,
 } from "../../twitch-overlay/chat-feed";
 
@@ -24,7 +28,8 @@ import {
 
 const STORAGE_KEY = "batlay.chatOverlayOptions";
 
-function loadOptions(): OverlayOptions {
+/** Réglages mémorisés de l'overlay Chat (aussi lus par la page Intégrations, pour proposer la même URL). */
+export function loadOptions(): OverlayOptions {
   try {
     return parseOverlayOptions(localStorage.getItem(STORAGE_KEY) ?? "");
   } catch {
@@ -52,6 +57,12 @@ const FONT_OPTIONS: { value: ChatFont; label: string }[] = [
   { value: "arial", label: "Arial" },
   { value: "serif", label: "Georgia (serif)" },
   { value: "mono", label: "Consolas (mono)" },
+];
+
+const MOTION_OPTIONS: { value: ChatMotion; label: string }[] = [
+  { value: "auto", label: "Respecter Windows" },
+  { value: "on", label: "Toujours animer" },
+  { value: "off", label: "Aucune animation" },
 ];
 
 const SAMPLE = [
@@ -99,6 +110,24 @@ export function ChatOverlaySection() {
 
   const preview = options.newestTop ? [...SAMPLE].reverse() : SAMPLE;
 
+  // Aperçu des animations : rejoue l'arrivée des messages d'exemple à chaque changement de réglage.
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [replay, setReplay] = useState(0);
+  const animKey = `${options.enterEffect}|${options.animMs}|${options.motion}|${replay}`;
+  const firstAnim = useRef(true);
+  useEffect(() => {
+    if (firstAnim.current) {
+      firstAnim.current = false;
+      return;
+    }
+    const m = chatMotion(options, prefersReducedMotion());
+    Array.from(previewRef.current?.children ?? []).forEach((row, i) => {
+      const spec = m.enter && { ...m.enter, delayMs: i * 120 };
+      playEnter(row, spec, { distance: spec ? m.distance(spec.effect) : undefined });
+    });
+    // `options` est lu au moment du rejeu ; animKey en résume les champs utiles.
+  }, [animKey]);
+
   return (
     <div className="card p-6">
       <div className="flex items-start justify-between gap-4">
@@ -123,6 +152,7 @@ export function ChatOverlaySection() {
       <div className="mt-5 grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         {/* Aperçu : fond de scène fixe, comme pour les overlays musicaux. */}
         <div
+          ref={previewRef}
           className={`flex min-h-[11rem] flex-col gap-1.5 overflow-hidden rounded-xl bg-stage p-3 ${options.newestTop ? "justify-start" : "justify-end"}`}
           style={{ fontFamily: FONT_STACKS[options.font] }}
           aria-label="Aperçu"
@@ -179,6 +209,27 @@ export function ChatOverlaySection() {
           <Check label="Ombre et contour du texte" checked={options.shadow} onChange={(shadow) => update({ shadow })} />
           <Check label="Masquer les commandes (!…)" checked={options.hideCommands} onChange={(hideCommands) => update({ hideCommands })} />
           <Check label="Nouveaux messages en haut" checked={options.newestTop} onChange={(newestTop) => update({ newestTop })} />
+          <div className="space-y-3 border-t border-line pt-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-medium text-fg">Animations</span>
+              <button
+                type="button"
+                onClick={() => setReplay((n) => n + 1)}
+                className="inline-flex items-center gap-1 text-xs text-muted hover:text-fg"
+                title="Rejouer l'arrivée des messages dans l'aperçu"
+              >
+                <Play size={12} className="text-accent" /> Aperçu
+              </button>
+            </div>
+            <ChatSelect id="chat-enter" label="Arrivée" value={options.enterEffect} options={enterEffectOptions()} onChange={(v) => update({ enterEffect: v as OverlayOptions["enterEffect"] })} />
+            <ChatSelect id="chat-exit" label="Départ" value={options.exitEffect} options={exitEffectOptions()} onChange={(v) => update({ exitEffect: v as OverlayOptions["exitEffect"] })} />
+            <Range label="Durée" unit=" ms" min={50} max={1000} step={10} value={options.animMs} onChange={(animMs) => update({ animMs })} />
+            <ChatSelect id="chat-motion" label="Mouvement réduit" value={options.motion} options={MOTION_OPTIONS} onChange={(v) => update({ motion: v as ChatMotion })} />
+            <p className="text-[11px] text-faint">
+              Le départ s'applique aux messages qui disparaissent (délai ou nombre maximal atteint). Un message supprimé par la modération
+              disparaît toujours immédiatement.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -210,6 +261,31 @@ export function ChatOverlaySection() {
           : "Aucune source OBS connectée. "}
         Les réglages sont inclus dans l'URL : recopiez-la dans OBS après un changement.
       </p>
+    </div>
+  );
+}
+
+function ChatSelect({
+  id,
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <label htmlFor={id} className="text-muted">
+        {label}
+      </label>
+      <div className="w-48">
+        <SelectMenu id={id} value={value} options={options} onChange={onChange} />
+      </div>
     </div>
   );
 }

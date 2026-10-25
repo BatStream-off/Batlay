@@ -1,5 +1,6 @@
 import { useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { OverlayCanvas } from "@/components/OverlayPreview";
+import { AnimationProvider } from "@/animation/react";
 import type { ComponentTransform, OverlayComponentConfig, OverlayConfig } from "@/types/overlay";
 import type { Track } from "@/types/track";
 import type { ProgressReader } from "@/utils/progress-clock";
@@ -139,7 +140,10 @@ export function EditorCanvas({
         <div
           style={{ position: "absolute", left: 0, top: 0, width: canvasWidth, height: canvasHeight, transform: `scale(${zoom})`, transformOrigin: "top left" }}
         >
-          <OverlayCanvas overlay={overlay} track={track} reader={reader} />
+          {/* Aperçu animé, comme dans OBS (les miniatures ailleurs restent fixes). */}
+          <AnimationProvider>
+            <OverlayCanvas overlay={overlay} track={track} reader={reader} />
+          </AnimationProvider>
         </div>
       </div>
 

@@ -3,6 +3,73 @@
 Toutes les évolutions notables de Batlay. Le numéro de version suit `package.json`
 (vérifié par `tests/version.test.ts`).
 
+## 0.3.7
+
+### Ajouté (alertes : followers et abonnés)
+- Page **Alertes** et page overlay **`/alerts`**. Une seule source Web pour toutes les alertes, sur le même port que la musique : `http://batlay.test:3000/alerts`.
+- **Types d'alertes** : nouveau follower, nouvel abonné, réabonnement (avec le message du spectateur), abonnements offerts. Chacune est personnalisable :
+  - titre et texte avec variables (`{user}`, `{amount}`, `{months}`, `{tier}`, `{message}`, `{platform}`) ;
+  - **image** (PNG, JPG, GIF animé, WebP) ;
+  - **son** (carillon intégré ou fichier MP3, OGG, WAV) et volume ;
+  - durée, animations d'apparition et de disparition (moteur commun), disposition, couleurs, taille, carte.
+  
+  Aperçu immédiat, bouton **Tester**, bouton **Passer**. Les alertes s'affichent une par une, sans doublon ; la file est limitée à 30 alertes en attente.
+- **Twitch** : EventSub officiel (`channel.follow` v2, `channel.subscribe`, `channel.subscription.message`, `channel.subscription.gift`), pour la chaîne du compte connecté. Deux permissions **facultatives** en lecture seule sont demandées à la connexion : `moderator:read:followers` et `channel:read:subscriptions`. Le bouton « Reconnecter Twitch » permet de les accorder sans interrompre le chat. Un abonnement offert à plusieurs personnes donne une seule alerte.
+- **TikTok** : TikTok ne propose pas d'API officielle pour les événements d'un live, et Batlay n'utilise aucun protocole non officiel. Une **adresse locale à clé secrète** (`/api/alerts/hook/<clé>`, en GET ou POST) permet à un outil déjà connecté à TikTok (TikFinity, Streamer.bot…) de déclencher les alertes. Le débit est limité (20 alertes / 10 s) et la clé peut être régénérée.
+- **Fond « pochette »** (fond de l'overlay et fond de chaque composant) : la pochette du morceau en cours, agrandie et floutée, avec flou, zoom et assombrissement réglables. Un fondu marque chaque changement de morceau, et une couleur de secours s'affiche sans pochette.
+
+### Sécurité (alertes)
+- **Fichiers importés** :
+  - type reconnu par le contenu (pas par le nom) ;
+  - 8 Mo au maximum ;
+  - stockés sous un nom calculé (hash) dans le dossier de Batlay ;
+  - servis uniquement pour des identifiants validés.
+- Les textes des alertes (pseudos, messages) sont nettoyés et rendus comme du texte, jamais comme du HTML.
+- CSP du tableau de bord : seul `media-src 'self' data: blob:` a été ajouté, pour écouter les sons dans l'aperçu.
+
+### Corrigé (TikTok LIVE Studio)
+- Le champ « Lien » de TikTok LIVE Studio refuse les adresses `localhost` et `127.0.0.1` (« Saisis l'URL correcte ») : la page Intégrations propose désormais pour TikTok une URL en **`http://batlay.test:<port>/…`**. Ce nom réservé (`.test`, RFC 6761) n'existe sur aucun DNS public : il ne pointe vers le PC qu'après l'ajout de la ligne `127.0.0.1 batlay.test` au fichier hosts de Windows, avec la marche à suivre et une vérification en lecture seule dans Batlay (Batlay ne modifie jamais ce fichier).
+- **Configuration automatique** : au premier lancement sous Windows, Batlay propose d'ajouter lui-même la ligne au fichier hosts. Windows demande l'autorisation (fenêtre d'administrateur), et la demande n'est faite qu'une fois. Le bouton « Configurer automatiquement » (Intégrations) permet de réessayer, et « Retirer » enlève cette seule ligne. Les scripts sont fixes et ne touchent qu'à `127.0.0.1 batlay.test`.
+- **`batlay.test` partout** : dès que ce nom pointe vers le PC, toutes les URL copiées (OBS, chat, barre latérale, éditeur) l'utilisent. Les anciennes URL en `localhost` continuent de fonctionner.
+- Les deux serveurs (musique et chat) acceptent ce nom en plus de `localhost` / `127.0.0.1`, et seulement lui : sous-domaines et autres noms toujours refusés. Ils écoutent toujours sur 127.0.0.1 uniquement.
+
+### Ajouté (moteur d'animations et de transitions)
+- **Moteur commun** (`src/animation/`) basé sur la Web Animations API native, sans nouvelle dépendance. Il gère :
+  - l'entrée, la sortie et les transitions entre deux états ;
+  - la durée, le délai, l'accélération et les répétitions ;
+  - l'annulation et le remplacement d'une animation en cours, et le nettoyage au retrait du DOM ;
+  - le mouvement réduit.
+  
+  Il est conçu pour servir aussi aux futures alertes et futurs widgets.
+- **Effets** :
+  - entrée : fondu, 4 glissements, zoom avant, rebond, révélation du texte ;
+  - sortie : fondu, 4 glissements, zoom arrière, réduction, flou ;
+  - décoratifs : pulsation, lueur, brillance, flottement, rotation de la pochette.
+- **Overlay musique** : transition par composant à chaque changement de morceau (pochette, titre, artistes…). La stabilisation contre les clignotements fait qu'une rafale de métadonnées ne produit qu'une seule transition. Un état tardif est ignoré, et l'overlay sort proprement quand la musique s'arrête.
+- **Éditeur** :
+  - section **Animations et transitions** : Subtil, Fluide, Dynamique, Gaming, Sans animation, entrée, sortie, durée, réglages avancés ;
+  - onglet **Animation** par composant : transition propre ou aucune, effet décoratif ;
+  - aperçu immédiat et bouton **Tester la transition**.
+  
+  Les réglages s'appliquent en direct dans OBS à l'enregistrement.
+- **Chat Twitch** : arrivée et départ animés des messages. Les messages sortants gardent leur place, aucun chevauchement. La modération retire toujours immédiatement. Nouveaux paramètres d'URL `anim`, `out`, `ad`, `motion` (absents = comportement par défaut), réglables dans Overlays → Chat.
+
+### Compatibilité
+- Les overlays enregistrés et les presets sont lus sans changement : les nouveaux champs d'animation sont facultatifs. L'arrivée par défaut des messages reproduit l'ancienne animation CSS. Les URL existantes restent valables.
+- **Changement visible** : les réglages d'animation des presets existaient depuis la v0.1 mais n'étaient pas appliqués. Ils le sont désormais : choisir « Sans animation » rétablit l'affichage instantané. Le chat ajoute un fondu de 180 ms au départ des messages (`out=none` pour l'ancien comportement).
+
+### Ajouté (intégrations multi-logiciels)
+- Page **Intégrations** (barre latérale) : OBS Studio, **TikTok LIVE Studio**, Streamlabs Desktop, XSplit Broadcaster et « Autre logiciel ». Pour chacun : statut de compatibilité **honnête** (référence / documentée / partielle / non vérifiée), source à utiliser, étapes, limites connues, alternatives, lien vers la documentation officielle quand elle existe. Thèmes sombre et clair.
+- TikTok LIVE Studio : source « Link » (compatibilité partielle, non documentée par TikTok) et méthode de secours par la caméra virtuelle d'OBS.
+- Par overlay : URL, **Copier l'URL**, **Copier la taille**, taille de source conseillée pour les formats paysage 1920 × 1080, portrait 1080 × 1920 et carré 1080 × 1080, et compteur **« sources connectées »**.
+- Options d'URL facultatives : variante `127.0.0.1` et **Ajuster à la source** (`?fit=contain`, overlay musical). Les URL existantes ne changent pas.
+- **Quel overlay est derrière cette URL ?** : identifie une URL collée (overlay, chat, lien révoqué).
+- Module `src/integrations/` et guide `docs/INTEGRATIONS.md`.
+
+### Sécurité
+- Le serveur d'overlay musical (port 3000) refuse désormais les requêtes dont le `Host` n'est pas local (DNS-rebinding) et les WebSocket ouverts depuis une autre origine, comme le serveur du chat. Il écoute toujours sur 127.0.0.1 uniquement.
+- Les liens de documentation sont ouverts par identifiant, à partir d'une liste fermée côté process principal.
+
 ## 0.3.6
 
 ### Modifié

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Servie depuis /alerts par le serveur d'overlay : <base href="/"> pour que ./assets/... soit résolu à la racine. -->
+    <base href="/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Batlay · Alertes</title>
+    <style>
+      /* Fond transparent obligatoire pour une source Web (OBS, TikTok LIVE Studio…) */
+      html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+      #alerts-root { position: relative; width: 100vw; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="alerts-root"></div>
+    <script type="module" src="/alerts/main.tsx"></script>
+  </body>
+</html>

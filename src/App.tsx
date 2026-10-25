@@ -9,6 +9,8 @@ import { Editor } from "@/pages/Editor";
 import { Connections } from "@/pages/Connections";
 import { Twitch } from "@/pages/Twitch";
 import { Settings } from "@/pages/Settings";
+import { Integrations } from "@/pages/Integrations";
+import { Alerts } from "@/pages/Alerts";
 import { useOverlayStore } from "@/stores/useOverlayStore";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useMusicStore } from "@/stores/useMusicStore";
@@ -68,6 +70,9 @@ export default function App() {
           {/* Section Chat */}
           <Route path="/chat" element={<Twitch />} />
           <Route path="/twitch" element={<Navigate to="/chat" replace />} />
+          {/* Mode d'emploi multi-logiciels (OBS, TikTok LIVE Studio, Streamlabs, XSplit…). */}
+          <Route path="/integrations" element={<Integrations />} />
+          <Route path="/alerts" element={<Alerts />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>

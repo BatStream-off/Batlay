@@ -25,7 +25,7 @@
   max-width: 100%;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-  animation: msg-in 180ms ease-out;
+  /* Arrivée et départ : moteur d'animations commun (src/animation/), réglables par l'URL (anim, out, ad, motion). */
 }
 
 .chat--bg .msg {
@@ -59,10 +59,4 @@
   vertical-align: middle;
 }
 
-@keyframes msg-in {
-  from { opacity: 0; transform: translateY(0.4em); }
-  to { opacity: 1; transform: none; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .msg { animation: none; }
-}
+/* « Réduire les animations » du système : respecté par le moteur (paramètre motion=auto, par défaut). */

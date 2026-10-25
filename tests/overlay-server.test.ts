@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { WebSocket } from "ws";
+import { request } from "node:http";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -119,6 +120,73 @@ describe("OverlayServer", () => {
     expect(fresh.messages.some((m) => m.type === "state")).toBe(true);
     expect((await fetch(`http://127.0.0.1:${PORT}/api/overlays/apres`)).status).toBe(200);
     fresh.ws.close();
+  });
+
+  // --- Intégrations multi-logiciels : même URL, mêmes mises à jour, quel que soit le logiciel ---
+
+  it("compte les sources connectées par overlay (page Intégrations) et les oublie à la déconnexion", async () => {
+    server.setOverlayConfigs([{ id: "o1" }, { id: "o2" }]);
+    expect(server.getClientCounts()).toEqual({});
+    const a = await open("o1");
+    const b = await open("o1");
+    const c = await open("o2");
+    await tick();
+    expect(server.getClientCounts()).toEqual({ o1: 2, o2: 1 });
+    a.ws.close();
+    c.ws.close();
+    await tick();
+    expect(server.getClientCounts()).toEqual({ o1: 1 });
+    b.ws.close();
+    await tick();
+    expect(server.getClientCounts()).toEqual({});
+    server.setOverlayConfigs([{ id: "o1" }]);
+  });
+
+  it("une source chargée via localhost OU 127.0.0.1 reçoit l'état et les modifications en direct", async () => {
+    for (const host of [`localhost:${PORT}`, `127.0.0.1:${PORT}`, `batlay.test:${PORT}`]) {
+      // Ce qu'envoie une source Web (OBS, Streamlabs, XSplit, Link de TikTok LIVE Studio) : Host + Origin de la page.
+      const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws/o1`, { headers: { Host: host, Origin: `http://${host}` } });
+      const messages: any[] = [];
+      ws.on("message", (d) => messages.push(JSON.parse(d.toString("utf8"))));
+      await new Promise((r) => ws.once("open", r));
+      await tick();
+      expect(messages.some((m) => m.type === "state"), host).toBe(true);
+      server.setOverlayConfigs([{ id: "o1", name: `via ${host}` } as { id: string }]);
+      await tick();
+      expect(messages.find((m) => m.type === "config")?.payload.name, host).toBe(`via ${host}`);
+      ws.close();
+    }
+    server.setOverlayConfigs([{ id: "o1" }]);
+  });
+
+  it("refuse un WebSocket ouvert par une page d'une autre origine", async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws/o1`, { headers: { Origin: "https://evil.example" } });
+    const outcome = await new Promise<string>((resolve) => {
+      ws.once("open", () => resolve("open"));
+      ws.once("error", () => resolve("refused"));
+    });
+    expect(outcome).toBe("refused");
+    expect(server.getClientCounts()).toEqual({});
+  });
+
+  it("refuse toute requête HTTP dont le Host n'est pas ce serveur local (DNS-rebinding)", async () => {
+    const get = (path: string, host: string) =>
+      new Promise<number>((resolve, reject) => {
+        const req = request({ host: "127.0.0.1", port: PORT, path, headers: { Host: host } }, (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        });
+        req.on("error", reject);
+        req.end();
+      });
+    expect(await get("/api/overlays/o1", "evil.example")).toBe(403);
+    expect(await get("/api/overlays/o1", `evil.example:${PORT}`)).toBe(403);
+    expect(await get("/health", `localhost:${PORT + 1}`)).toBe(403);
+    expect(await get("/api/overlays/o1", `localhost:${PORT}`)).toBe(200);
+    expect(await get("/api/overlays/o1", `127.0.0.1:${PORT}`)).toBe(200);
+    // Nom local pour TikTok LIVE Studio (déclaré dans le fichier hosts) : accepté, ses sous-domaines non.
+    expect(await get("/api/overlays/o1", `batlay.test:${PORT}`)).toBe(200);
+    expect(await get("/api/overlays/o1", `x.batlay.test:${PORT}`)).toBe(403);
   });
 
   it("404 sur une pochette inconnue", async () => {

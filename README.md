@@ -9,14 +9,14 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.6-9b6bff" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.7-9b6bff" />
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%2F%2011-3a2170" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-React%20%2B%20TypeScript-1f1140" />
 </p>
 
 ---
 
-Batlay est une application Windows qui affiche **ce que vous écoutez** et **le chat de votre stream** dans OBS, à travers de simples sources « Navigateur ». Tout tourne sur votre PC : pas de compte Batlay, pas de serveur externe.
+Batlay est une application Windows qui affiche **ce que vous écoutez** et **le chat de votre stream** dans OBS, à travers de simples sources « Navigateur ». Les mêmes overlays s'utilisent aussi dans **TikTok LIVE Studio**, **Streamlabs Desktop**, **XSplit** ou tout logiciel qui affiche une page Web (voir [Intégrations](docs/INTEGRATIONS.md)). Tout tourne sur votre PC : pas de compte Batlay, pas de serveur externe.
 
 ## Fonctionnalités
 
@@ -24,6 +24,8 @@ Batlay est une application Windows qui affiche **ce que vous écoutez** et **le 
 - **Éditeur visuel** : glissez, redimensionnez et stylez chaque élément (titre, artiste(s), pochette, barre de progression, fond…), avec annuler/rétablir et aperçu en temps réel.
 - **Presets** : Minimal, Modern, Glass, Neon, Compact, Large, ou un canvas vide.
 - **Plusieurs overlays**, chacun avec son propre lien OBS ; les modifications s'appliquent **en direct** dans OBS, sans recharger la source.
+- **Fond « pochette floutée »** : la pochette du morceau, agrandie et floutée, en fond de l'overlay ou d'un composant (flou, zoom, assombrissement réglables).
+- **Animations et transitions** au changement de morceau : fondu, glissements, zoom, rebond, révélation du texte, sortie floutée…, avec durée, délai, décalage entre éléments, amplitude et accélération. Combinaisons prêtes à l'emploi (Subtil, Fluide, Dynamique, Gaming, Sans animation), effets décoratifs facultatifs (pulsation, lueur, brillance, flottement, rotation de la pochette). Respecte « réduire les animations » de Windows.
 - **Sources de lecture** :
   - **Lecture système (Windows)** — Spotify, YouTube Music, VLC, navigateurs… tout ce qui apparaît dans le volet multimédia de Windows, sans compte ni clé.
   - **Spotify** via son API officielle (optionnel).
@@ -34,8 +36,21 @@ Batlay est une application Windows qui affiche **ce que vous écoutez** et **le 
 - Chat en **temps réel**, avec badges, emotes et couleurs des pseudos.
 - Affichez le chat de **votre chaîne ou de n'importe quelle autre** (pseudo ou lien Twitch).
 - **Personnalisation** : taille du texte, nombre de messages, disparition automatique, police, fond et opacité, ombre du texte, masquage des commandes (`!…`), ordre des messages, largeur et hauteur de la zone.
+- **Animations** d'arrivée et de départ des messages, réglables (effet, durée, mouvement réduit). Un message supprimé par la modération disparaît toujours immédiatement.
 - Bouton **Test** pour vérifier la source sans attendre un vrai message, et bouton **Redémarrer le lien** pour recharger les sources OBS d'un clic.
 - Lecture seule : Batlay ne demande que la permission de lire le chat.
+
+### 🔔 Alertes (Twitch et TikTok)
+- **Nouveau follower, nouvel abonné, réabonnement, abonnements offerts**, avec une seule source Web (`/alerts`) pour toutes les alertes.
+- **Personnalisation** : texte avec variables, image (GIF animé compris), son (carillon intégré ou votre fichier), durée, animations, couleurs. Aperçu immédiat, boutons « Tester » et « Passer ».
+- **Twitch** : officiel, pour votre chaîne (reconnexion unique pour accorder les permissions de lecture des followers et abonnements).
+- **TikTok** : pas d'API officielle pour les événements d'un live. Un outil déjà connecté à votre live TikTok (TikFinity, Streamer.bot…) appelle une adresse locale protégée par une clé.
+
+### 🔌 Intégrations (OBS, TikTok LIVE Studio, Streamlabs, XSplit…)
+- Page **Intégrations** : pour chaque logiciel, la source à utiliser, les étapes, la taille à saisir (paysage, portrait 1080 × 1920, carré) et le niveau de compatibilité **réellement vérifié**.
+- Une seule URL par overlay, valable partout ; variante `127.0.0.1` et option **Ajuster à la source** (`?fit=contain`) facultatives.
+- Compteur **« sources connectées »** : la preuve que le logiciel affiche l'overlay et reçoit les mises à jour en direct.
+- **TikTok LIVE Studio** : source « Link » (compatibilité partielle, à vérifier avec le compteur), et méthode de secours par la caméra virtuelle d'OBS. Détails : [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
 
 ### ⚙️ Confort
 - **Vue d'ensemble** : l'état des deux overlays d'un coup d'œil, avec les problèmes à régler.
@@ -65,6 +80,9 @@ Batlay est une application Windows qui affiche **ce que vous écoutez** et **le 
 
 > Les réglages du chat sont écrits **dans l'URL** : après un changement, recopiez l'URL dans la source OBS.
 
+### Autres logiciels (TikTok LIVE Studio, Streamlabs, XSplit…)
+Ouvrez **Intégrations**, choisissez votre logiciel, puis copiez l'URL et la taille indiquées. Pour TikTok LIVE Studio : **+ Ajouter une source → Link**, puis collez l'URL. Vérifiez ensuite que « sources connectées » passe à 1. Guide complet et limites connues : [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
+
 <details>
 <summary><strong>Réglages du chat dans l'URL</strong></summary>
 
@@ -83,6 +101,10 @@ Exemple : `http://localhost:4000/overlay/chat?size=28&max=15&fade=30&font=mono&b
 | `nocmd` | `1` pour masquer les messages qui commencent par `!` | affichés |
 | `top` | `1` pour les nouveaux messages en haut | en bas |
 | `w` / `h` | Largeur / hauteur de la zone en px (absent = toute la source) | auto |
+| `anim` | Arrivée : `fade`, `slideUp`, `slideDown`, `slideLeft`, `slideRight`, `scale`, `pop`, `reveal`, `none` | `slideUp` |
+| `out` | Départ : `fade`, `slideUp`, `slideDown`, `slideLeft`, `slideRight`, `scale`, `shrink`, `blur`, `none` | `fade` |
+| `ad` | Durée des animations, 50 à 2000 ms | `180` |
+| `motion` | `auto` (respecte Windows), `on` (toujours), `off` (jamais) | `auto` |
 
 Une valeur absente ou invalide retombe sur le défaut : une URL mal tapée n'affiche jamais une page cassée.
 </details>
@@ -105,7 +127,7 @@ Batlay utilise le flow PKCE : aucun Client Secret n'est nécessaire, et le jeton
 | Chat Twitch | `4000` (fixe) |
 | Retour de connexion Spotify | `8945` (le temps de la connexion) |
 
-Les serveurs n'écoutent que sur `127.0.0.1` : rien n'est accessible depuis le réseau.
+Les serveurs n'écoutent que sur `127.0.0.1` : rien n'est accessible depuis le réseau. Ils refusent aussi les requêtes dont l'en-tête `Host` (ou l'`Origin` d'un WebSocket) n'est pas une adresse locale de Batlay.
 
 ## Développement
 
