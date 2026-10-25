@@ -126,6 +126,8 @@ describe("TwitchServer", () => {
   });
 
   it("reloadClients prévient chaque source connectée, sans rien mémoriser", async () => {
+    // Les sockets des tests précédents se ferment de façon asynchrone.
+    for (let i = 0; i < 50 && server.getClientCount() > 0; i++) await tick();
     expect(server.reloadClients()).toBe(0);
     const { ws, messages } = await open();
     await tick();

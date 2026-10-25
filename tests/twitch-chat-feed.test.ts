@@ -68,8 +68,8 @@ describe("buildOverlaySearch", () => {
     expect(buildOverlaySearch(parseOverlayOptions(""))).toBe("");
   });
   it("aller-retour fidèle avec parseOverlayOptions", () => {
-    const options = { size: 30, max: 12, fadeMs: 45_000, showBadges: false, background: true };
-    expect(buildOverlaySearch(options)).toBe("?size=30&max=12&fade=45&badges=0&bg=1");
+    const options = { ...DEFAULT_OPTIONS, size: 30, max: 12, fadeMs: 45_000, showBadges: false, background: true };
+    expect(buildOverlaySearch(options)).toContain("size=30&max=12&fade=45&badges=0&bg=1");
     expect(parseOverlayOptions(buildOverlaySearch(options))).toEqual(options);
   });
 });

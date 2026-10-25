@@ -3,6 +3,25 @@
 Toutes les évolutions notables de Batlay. Le numéro de version suit `package.json`
 (vérifié par `tests/version.test.ts`).
 
+## 0.3.8
+
+### Ajouté (TikTok directement dans Batlay)
+- Page **Alertes → TikTok** : pseudo (`@pseudo` ou lien du live) → **Se connecter**. Aucun mot de passe, aucun outil tiers à installer.
+- Batlay **attend le live** et s'y branche tout seul, puis s'y **rebranche** après une coupure, au live suivant et au redémarrage de Batlay. **Déconnecter** arrête tout. L'état est affiché : Déconnecté, Connexion…, En live, En attente du live (avec le prochain essai), Erreur.
+- Événements : **follows** (une alerte par spectateur et par live), nouveaux **Super Fans** (abonnés TikTok) → alerte « Nouvel abonné », **cadeaux**.
+- Nouveau type d'alerte **Cadeau TikTok** : texte par défaut `{user} envoie {amount} × {gift} !`, nouvelle variable `{gift}` (nom du cadeau). Une série de cadeaux donne **une seule** alerte, à la fin de la série. Réglage **Alertes de cadeaux** : tous, ou à partir de 5 / 10 / 50 / 100 / 500 / 1 000 diamants (quantité comprise).
+- L'adresse locale pour TikFinity, Streamer.bot… reste disponible (repliée dans la carte TikTok) et accepte aussi `type=tiktokGift` (alias `cadeau`) avec `gift=`.
+
+### Fonctionnement et limites
+- TikTok ne propose pas d'API officielle : Batlay utilise la bibliothèque communautaire **`tiktok-live-connector`** (non officielle, nouvelle dépendance). Elle fait valider la connexion par un **service tiers, Euler Stream**, qui reçoit le pseudo (jamais de mot de passe ni de session). Lecture seule : Batlay n'écrit rien dans le live. Peut cesser de fonctionner si TikTok change son site ; non autorisé par TikTok.
+- Nouveaux essais espacés (hors live 90 s, service saturé 5 min, après la fin du live 60 s), car la version gratuite du service limite les connexions.
+- Bibliothèque chargée à la demande : si elle manque ou plante, Batlay démarre quand même et l'indique dans la carte.
+- `package.json` → `overrides` : `got` 14 sous `tiktok-live-connector` (`got` 15 exige Node 22, Electron 31 embarque Node 20).
+- **Non testé sur un vrai live TikTok** (inaccessible depuis l'environnement de développement) : conversion des événements écrite d'après la documentation et le code source de la bibliothèque, testée avec de fausses données.
+
+### Corrigé
+- Deux tests anciens qui échouaient et auraient bloqué la publication automatique (`npm test` dans le workflow) : `twitch-chat-feed` (aller-retour des options) et `twitch-server` (`reloadClients`, attente de la fermeture des connexions précédentes).
+
 ## 0.3.7
 
 ### Ajouté (alertes : followers et abonnés)
@@ -15,7 +34,7 @@ Toutes les évolutions notables de Batlay. Le numéro de version suit `package.j
   
   Aperçu immédiat, bouton **Tester**, bouton **Passer**. Les alertes s'affichent une par une, sans doublon ; la file est limitée à 30 alertes en attente.
 - **Twitch** : EventSub officiel (`channel.follow` v2, `channel.subscribe`, `channel.subscription.message`, `channel.subscription.gift`), pour la chaîne du compte connecté. Deux permissions **facultatives** en lecture seule sont demandées à la connexion : `moderator:read:followers` et `channel:read:subscriptions`. Le bouton « Reconnecter Twitch » permet de les accorder sans interrompre le chat. Un abonnement offert à plusieurs personnes donne une seule alerte.
-- **TikTok** : TikTok ne propose pas d'API officielle pour les événements d'un live, et Batlay n'utilise aucun protocole non officiel. Une **adresse locale à clé secrète** (`/api/alerts/hook/<clé>`, en GET ou POST) permet à un outil déjà connecté à TikTok (TikFinity, Streamer.bot…) de déclencher les alertes. Le débit est limité (20 alertes / 10 s) et la clé peut être régénérée.
+- **TikTok** : TikTok ne propose pas d'API officielle pour les événements d'un live. Une **adresse locale à clé secrète** (`/api/alerts/hook/<clé>`, en GET ou POST) permet à un outil déjà connecté à TikTok (TikFinity, Streamer.bot…) de déclencher les alertes. Le débit est limité (20 alertes / 10 s) et la clé peut être régénérée.
 - **Fond « pochette »** (fond de l'overlay et fond de chaque composant) : la pochette du morceau en cours, agrandie et floutée, avec flou, zoom et assombrissement réglables. Un fondu marque chaque changement de morceau, et une couleur de secours s'affiche sans pochette.
 
 ### Sécurité (alertes)
@@ -28,7 +47,7 @@ Toutes les évolutions notables de Batlay. Le numéro de version suit `package.j
 - CSP du tableau de bord : seul `media-src 'self' data: blob:` a été ajouté, pour écouter les sons dans l'aperçu.
 
 ### Corrigé (TikTok LIVE Studio)
-- Le champ « Lien » de TikTok LIVE Studio refuse les adresses `localhost` et `127.0.0.1` (« Saisis l'URL correcte ») : la page Intégrations propose désormais pour TikTok une URL en **`http://batlay.test:<port>/…`**. Ce nom réservé (`.test`, RFC 6761) n'existe sur aucun DNS public : il ne pointe vers le PC qu'après l'ajout de la ligne `127.0.0.1 batlay.test` au fichier hosts de Windows, avec la marche à suivre et une vérification en lecture seule dans Batlay (Batlay ne modifie jamais ce fichier).
+- Le champ « Lien » de TikTok LIVE Studio refuse les adresses `localhost` et `127.0.0.1` (« Saisis l'URL correcte ») : la page Intégrations propose désormais pour TikTok une URL en **`http://batlay.test:<port>/…`**. Ce nom réservé (`.test`, RFC 6761) n'existe sur aucun DNS public : il ne pointe vers le PC qu'après l'ajout de la ligne `127.0.0.1 batlay.test` au fichier hosts de Windows, avec la marche à suivre et une vérification dans Batlay.
 - **Configuration automatique** : au premier lancement sous Windows, Batlay propose d'ajouter lui-même la ligne au fichier hosts. Windows demande l'autorisation (fenêtre d'administrateur), et la demande n'est faite qu'une fois. Le bouton « Configurer automatiquement » (Intégrations) permet de réessayer, et « Retirer » enlève cette seule ligne. Les scripts sont fixes et ne touchent qu'à `127.0.0.1 batlay.test`.
 - **`batlay.test` partout** : dès que ce nom pointe vers le PC, toutes les URL copiées (OBS, chat, barre latérale, éditeur) l'utilisent. Les anciennes URL en `localhost` continuent de fonctionner.
 - Les deux serveurs (musique et chat) acceptent ce nom en plus de `localhost` / `127.0.0.1`, et seulement lui : sous-domaines et autres noms toujours refusés. Ils écoutent toujours sur 127.0.0.1 uniquement.

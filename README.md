@@ -9,14 +9,14 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.7-9b6bff" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.8-9b6bff" />
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%2F%2011-3a2170" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-React%20%2B%20TypeScript-1f1140" />
 </p>
 
 ---
 
-Batlay est une application Windows qui affiche **ce que vous écoutez** et **le chat de votre stream** dans OBS, à travers de simples sources « Navigateur ». Les mêmes overlays s'utilisent aussi dans **TikTok LIVE Studio**, **Streamlabs Desktop**, **XSplit** ou tout logiciel qui affiche une page Web (voir [Intégrations](docs/INTEGRATIONS.md)). Tout tourne sur votre PC : pas de compte Batlay, pas de serveur externe.
+Batlay est une application Windows qui affiche **ce que vous écoutez** et **le chat de votre stream** dans OBS, à travers de simples sources « Navigateur ». Les mêmes overlays s'utilisent aussi dans **TikTok LIVE Studio**, **Streamlabs Desktop**, **XSplit** ou tout logiciel qui affiche une page Web (voir [Intégrations](docs/INTEGRATIONS.md)). Tout tourne sur votre PC : pas de compte Batlay, pas de serveur Batlay (seule la connexion directe au live TikTok, facultative, passe par un service tiers).
 
 ## Fonctionnalités
 
@@ -44,7 +44,7 @@ Batlay est une application Windows qui affiche **ce que vous écoutez** et **le 
 - **Nouveau follower, nouvel abonné, réabonnement, abonnements offerts**, avec une seule source Web (`/alerts`) pour toutes les alertes.
 - **Personnalisation** : texte avec variables, image (GIF animé compris), son (carillon intégré ou votre fichier), durée, animations, couleurs. Aperçu immédiat, boutons « Tester » et « Passer ».
 - **Twitch** : officiel, pour votre chaîne (reconnexion unique pour accorder les permissions de lecture des followers et abonnements).
-- **TikTok** : pas d'API officielle pour les événements d'un live. Un outil déjà connecté à votre live TikTok (TikFinity, Streamer.bot…) appelle une adresse locale protégée par une clé.
+- **TikTok** : entrez votre pseudo, Batlay se branche tout seul sur votre live (follows, Super Fans, cadeaux). TikTok n'ayant pas d'API officielle, cela passe par une bibliothèque communautaire non officielle et un service de signature tiers (Euler Stream) qui reçoit le pseudo. Un outil comme TikFinity ou Streamer.bot peut aussi appeler une adresse locale protégée par une clé.
 
 ### 🔌 Intégrations (OBS, TikTok LIVE Studio, Streamlabs, XSplit…)
 - Page **Intégrations** : pour chaque logiciel, la source à utiliser, les étapes, la taille à saisir (paysage, portrait 1080 × 1920, carré) et le niveau de compatibilité **réellement vérifié**.
