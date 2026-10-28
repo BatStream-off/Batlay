@@ -1,7 +1,7 @@
 {
   "name": "batlay",
   "productName": "Batlay",
-  "version": "0.3.8",
+  "version": "0.4.0",
   "description": "Batlay - Application desktop d'overlays pour le streaming (OBS) : musique en cours et chat Twitch",
   "author": "Adil",
   "main": "dist-electron/main/index.js",

@@ -43,6 +43,22 @@
 }
 .msg--cheer { border-left-color: #f5c542; }
 
+.platform {
+  display: inline-block;
+  /* Taille du texte réduite à 0,72 : 1,55 em ici = 1,1 em du message. */
+  width: 1.55em;
+  height: 1.55em;
+  margin-right: 0.42em;
+  border-radius: 0.4em;
+  font: 800 0.72em/1.55em system-ui, sans-serif;
+  text-align: center;
+  color: #fff;
+  vertical-align: 0.12em;
+  text-shadow: none;
+}
+.platform--twitch { background: #9146ff; }
+.platform--tiktok { background: linear-gradient(135deg, #25f4ee 0%, #fe2c55 100%); }
+
 .badge {
   width: 1.1em;
   height: 1.1em;

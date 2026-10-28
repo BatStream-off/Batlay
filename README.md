@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.8-9b6bff" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.4.0-9b6bff" />
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%2F%2011-3a2170" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-React%20%2B%20TypeScript-1f1140" />
 </p>
@@ -39,6 +39,13 @@ Batlay est une application Windows qui affiche **ce que vous écoutez** et **le 
 - **Animations** d'arrivée et de départ des messages, réglables (effet, durée, mouvement réduit). Un message supprimé par la modération disparaît toujours immédiatement.
 - Bouton **Test** pour vérifier la source sans attendre un vrai message, et bouton **Redémarrer le lien** pour recharger les sources OBS d'un clic.
 - Lecture seule : Batlay ne demande que la permission de lire le chat.
+
+### 🎨 Overlays personnalisés
+- Écran de début, pause, fin de live, cadre webcam, bandeau réseaux, écran vertical TikTok : des modèles à modifier, avec vos images (glisser-déposer ou Ctrl+V), des textes, des formes et une horloge. Toujours affichés, même sans musique.
+
+### 📺 Fenêtre Live
+- Chats Twitch et TikTok (fusionnés, côte à côte ou un seul), compteurs du live (followers, abonnés, cadeaux, messages), et un journal clair : chaque alerte et ce qui lui est arrivé, avec un bouton Rejouer.
+- Peut s'ouvrir dans une fenêtre séparée, « Toujours visible », pour un second écran.
 
 ### 🔔 Alertes (Twitch et TikTok)
 - **Nouveau follower, nouvel abonné, réabonnement, abonnements offerts**, avec une seule source Web (`/alerts`) pour toutes les alertes.

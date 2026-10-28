@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { TWITCH_WS_PATH, type ChatFragment, type ChatMessage, type OverlayMessage } from "../electron/shared/twitch";
-import { FONT_STACKS, chatMotion, createFeedReducer, emoteUrl, parseOverlayOptions, readableNameColor, type FeedAction, type FeedItem } from "./chat-feed";
+import { FONT_STACKS, chatMotion, createFeedReducer, messagePlatform, emoteUrl, parseOverlayOptions, readableNameColor, type FeedAction, type FeedItem } from "./chat-feed";
 import { reconcilePresence, removeLeaving, type Presence } from "../src/animation/presence";
 import { prefersReducedMotion, watchReducedMotion } from "../src/animation/engine";
 import type { MotionSpec } from "../src/animation/config";
@@ -190,12 +190,13 @@ function MessageRow({
   return (
     // Un message sortant reste à sa place dans la liste (aucun chevauchement) et n'est plus lu par les lecteurs d'écran.
     <div ref={ref} className={`msg msg--${message.highlight}`} aria-hidden={leaving || undefined}>
+      {options.platformIcon && <PlatformIcon platform={messagePlatform(message)} />}
       {options.showBadges &&
         message.badges.map((badge) => {
           const url = badges[`${badge.setId}/${badge.id}`];
           return url ? <img key={`${badge.setId}/${badge.id}`} className="badge" src={url} alt="" /> : null;
         })}
-      <span className="name" style={{ color: readableNameColor(message.color, message.userId) }}>
+      <span className="name" style={{ color: messagePlatform(message) === "tiktok" && !message.color ? "#FE6C8A" : readableNameColor(message.color, message.userId) }}>
         {message.displayName}
       </span>
       <span>: </span>
@@ -204,6 +205,15 @@ function MessageRow({
         <Fragment key={i} fragment={fragment} />
       ))}
     </div>
+  );
+}
+
+/** Repère de plateforme : pastille de couleur avec une lettre (pas de logo de marque). */
+function PlatformIcon({ platform }: { platform: "twitch" | "tiktok" }) {
+  return (
+    <span className={`platform platform--${platform}`} role="img" aria-label={platform === "tiktok" ? "TikTok" : "Twitch"}>
+      {platform === "tiktok" ? "T" : "t"}
+    </span>
   );
 }
 

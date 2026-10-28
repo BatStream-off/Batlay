@@ -212,7 +212,8 @@ describe("bibliothèque d'effets", () => {
     for (const def of Object.values(ENTER_EFFECT_DEFS)) {
       const last = def.keyframes({ intensity: 0.7 }).at(-1)!;
       if ("opacity" in last) expect(last.opacity, def.id).toBe(1);
-      if ("transform" in last) expect(String(last.transform), def.id).toMatch(/^(translate3d\(0, 0, 0\)|scale\(1\))$/);
+      // État naturel : transformations neutres seulement (aucun décalage, aucune rotation, échelle 1).
+      if ("transform" in last) expect(String(last.transform), def.id).toMatch(/^(translate3d\(0, 0, 0\)( scaleX\(1\))?|scale\(1\)|rotate\(0deg\)|perspective\(600px\) rotateX\(0deg\))$/);
     }
     for (const def of Object.values(EXIT_EFFECT_DEFS)) {
       expect(def.keyframes({ intensity: 0.7 }).at(-1)!.opacity, def.id).toBe(0);

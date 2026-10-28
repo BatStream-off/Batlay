@@ -6,14 +6,14 @@ const routes = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.to));
 describe("navigation : ordre du menu", () => {
   it("trois blocs, sans titres de section", () => {
     expect(NAV_GROUPS.map((g) => g.items.map((i) => i.label))).toEqual([
-      ["Vue d'ensemble", "Overlays", "Alertes", "Intégrations"],
+      ["Vue d'ensemble", "Live", "Overlays", "Alertes", "Intégrations"],
       ["Lecture en cours", "Chat Twitch", "Connexions"],
       ["Paramètres"],
     ]);
     for (const g of NAV_GROUPS) expect(g.label).toBeNull();
   });
-  it("routes dans l'ordre : /, /overlays, /alerts, /integrations, /musique, /chat, /connections, /settings", () => {
-    expect(routes).toEqual(["/", "/overlays", "/alerts", "/integrations", "/musique", "/chat", "/connections", "/settings"]);
+  it("routes dans l'ordre : /, /live, /overlays, /alerts, /integrations, /musique, /chat, /connections, /settings", () => {
+    expect(routes).toEqual(["/", "/live", "/overlays", "/alerts", "/integrations", "/musique", "/chat", "/connections", "/settings"]);
   });
   it("routes uniques", () => {
     expect(new Set(routes).size).toBe(routes.length);

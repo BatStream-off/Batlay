@@ -13,18 +13,73 @@ import { isEnterEffect, isExitEffect, type EnterEffectId, type ExitEffectId, typ
 // Animations : &anim=pop&out=slideLeft&ad=300&motion=on
 // ---------------------------------------------------------------------------
 
-export type ChatFont = "segoe" | "arial" | "serif" | "mono";
+/** Polices proposées : celles de Batlay (embarquées dans la page) et celles livrées avec Windows 10 / 11. */
+export const CHAT_FONTS = [
+  "segoe", "inter", "grotesk", "arial", "verdana", "trebuchet", "tahoma", "bahnschrift", "calibri", "candara", "franklin",
+  "impact", "comic", "segoePrint", "inkfree", "gabriola", "serif", "times", "palatino", "mono", "cascadia", "jetbrains", "courier",
+] as const;
+export type ChatFont = (typeof CHAT_FONTS)[number];
 
 /** `auto` : respecte « réduire les animations » du système · `on` : toujours animé · `off` : jamais. */
 export type ChatMotion = "auto" | "on" | "off";
 const CHAT_MOTIONS: readonly ChatMotion[] = ["auto", "on", "off"];
 
-/** Polices système uniquement : la source Navigateur d'OBS ne charge rien d'extérieur. */
+/**
+ * Rien n'est chargé depuis Internet : la source Navigateur d'OBS tourne sur le
+ * même PC. Inter, Space Grotesk et JetBrains Mono sont embarquées dans la page
+ * (twitch-overlay/main.tsx) ; les autres sont livrées avec Windows, avec une
+ * police de repli si elles manquent.
+ */
 export const FONT_STACKS: Record<ChatFont, string> = {
   segoe: '"Segoe UI Variable", "Segoe UI", system-ui, sans-serif',
+  inter: '"Inter Variable", "Segoe UI", system-ui, sans-serif',
+  grotesk: '"Space Grotesk Variable", "Segoe UI", system-ui, sans-serif',
   arial: 'Arial, Helvetica, sans-serif',
+  verdana: 'Verdana, Geneva, sans-serif',
+  trebuchet: '"Trebuchet MS", "Segoe UI", sans-serif',
+  tahoma: 'Tahoma, Verdana, sans-serif',
+  bahnschrift: 'Bahnschrift, "Segoe UI", sans-serif',
+  calibri: 'Calibri, Carlito, "Segoe UI", sans-serif',
+  candara: 'Candara, "Segoe UI", sans-serif',
+  franklin: '"Franklin Gothic Medium", "Arial Narrow", Arial, sans-serif',
+  impact: 'Impact, Haettenschweiler, "Arial Black", sans-serif',
+  comic: '"Comic Sans MS", "Comic Neue", cursive',
+  segoePrint: '"Segoe Print", "Comic Sans MS", cursive',
+  inkfree: '"Ink Free", "Segoe Print", cursive',
+  gabriola: 'Gabriola, Georgia, serif',
   serif: 'Georgia, "Times New Roman", serif',
+  times: '"Times New Roman", Times, serif',
+  palatino: '"Palatino Linotype", "Book Antiqua", Palatino, serif',
   mono: 'Consolas, "Cascadia Mono", "Courier New", monospace',
+  cascadia: '"Cascadia Code", "Cascadia Mono", Consolas, monospace',
+  jetbrains: '"JetBrains Mono Variable", Consolas, monospace',
+  courier: '"Courier New", Courier, monospace',
+};
+
+export const FONT_LABELS: Record<ChatFont, string> = {
+  segoe: "Segoe UI (défaut)",
+  inter: "Inter",
+  grotesk: "Space Grotesk",
+  arial: "Arial",
+  verdana: "Verdana",
+  trebuchet: "Trebuchet MS",
+  tahoma: "Tahoma",
+  bahnschrift: "Bahnschrift",
+  calibri: "Calibri",
+  candara: "Candara",
+  franklin: "Franklin Gothic",
+  impact: "Impact (gras, gaming)",
+  comic: "Comic Sans MS",
+  segoePrint: "Segoe Print (manuscrite)",
+  inkfree: "Ink Free (manuscrite)",
+  gabriola: "Gabriola (élégante)",
+  serif: "Georgia (serif)",
+  times: "Times New Roman",
+  palatino: "Palatino",
+  mono: "Consolas (mono)",
+  cascadia: "Cascadia Code (mono)",
+  jetbrains: "JetBrains Mono",
+  courier: "Courier New (machine à écrire)",
 };
 
 export interface OverlayOptions {
@@ -57,6 +112,20 @@ export interface OverlayOptions {
   /** Durée des animations, en ms. */
   animMs: number;
   motion: ChatMotion;
+  /** Plateformes affichées : les deux, ou une seule (le chat TikTok arrive dès que le live TikTok est branché dans Batlay). */
+  sources: ChatSources;
+  /** Petit logo de plateforme devant le pseudo (Twitch et TikTok) ; utile quand les deux chats sont mélangés. */
+  platformIcon: boolean;
+}
+
+export type ChatSources = "all" | "twitch" | "tiktok";
+const CHAT_SOURCES: readonly ChatSources[] = ["all", "twitch", "tiktok"];
+
+/** Plateforme d'un message (absente = Twitch : messages d'avant la 0.3.9). */
+export const messagePlatform = (message: Pick<ChatMessage, "platform">): "twitch" | "tiktok" => message.platform ?? "twitch";
+
+export function acceptsMessage(options: Pick<OverlayOptions, "sources">, message: Pick<ChatMessage, "platform">): boolean {
+  return options.sources === "all" || options.sources === messagePlatform(message);
 }
 
 export const DEFAULT_OPTIONS: OverlayOptions = {
@@ -77,6 +146,8 @@ export const DEFAULT_OPTIONS: OverlayOptions = {
   exitEffect: "fade",
   animMs: 180,
   motion: "auto",
+  sources: "all",
+  platformIcon: false,
 };
 
 function intParam(params: URLSearchParams, key: string, fallback: number, min: number, max: number): number {
@@ -95,7 +166,8 @@ const flag = (params: URLSearchParams, key: string, fallback: boolean): boolean 
 
 function fontParam(params: URLSearchParams): ChatFont {
   const raw = params.get("font")?.trim().toLowerCase();
-  return raw && Object.prototype.hasOwnProperty.call(FONT_STACKS, raw) ? (raw as ChatFont) : DEFAULT_OPTIONS.font;
+  // Liste fermée, comparaison sans tenir compte des majuscules (« segoePrint » = « segoeprint »).
+  return (raw && CHAT_FONTS.find((f) => f.toLowerCase() === raw)) || DEFAULT_OPTIONS.font;
 }
 
 /** Toute valeur absente ou invalide retombe sur le défaut : une URL mal tapée n'affiche jamais une page cassée. */
@@ -118,6 +190,8 @@ export function parseOverlayOptions(search: string): OverlayOptions {
     exitEffect: effectParam(params, "out", isExitEffect, DEFAULT_OPTIONS.exitEffect),
     animMs: intParam(params, "ad", DEFAULT_OPTIONS.animMs, 50, 2000),
     motion: effectParam(params, "motion", (v): v is ChatMotion => (CHAT_MOTIONS as readonly string[]).includes(v as string), DEFAULT_OPTIONS.motion),
+    sources: effectParam(params, "src", (v): v is ChatSources => (CHAT_SOURCES as readonly string[]).includes(v as string), DEFAULT_OPTIONS.sources),
+    platformIcon: flag(params, "pico", DEFAULT_OPTIONS.platformIcon),
   };
 }
 
@@ -145,6 +219,8 @@ export function buildOverlaySearch(options: OverlayOptions): string {
   if (options.exitEffect !== DEFAULT_OPTIONS.exitEffect) params.set("out", options.exitEffect);
   if (options.animMs !== DEFAULT_OPTIONS.animMs) params.set("ad", String(options.animMs));
   if (options.motion !== DEFAULT_OPTIONS.motion) params.set("motion", options.motion);
+  if (options.sources !== DEFAULT_OPTIONS.sources) params.set("src", options.sources);
+  if (options.platformIcon) params.set("pico", "1");
   const query = params.toString();
   return query ? `?${query}` : "";
 }
@@ -171,8 +247,9 @@ export function isCommand(message: Pick<ChatMessage, "text">): boolean {
   return message.text.trimStart().startsWith("!");
 }
 
-export function createFeedReducer(options: Pick<OverlayOptions, "max" | "fadeMs"> & { hideCommands?: boolean }) {
-  const hidden = (message: ChatMessage) => options.hideCommands === true && isCommand(message);
+export function createFeedReducer(options: Pick<OverlayOptions, "max" | "fadeMs"> & { hideCommands?: boolean; sources?: ChatSources }) {
+  const hidden = (message: ChatMessage) =>
+    (options.hideCommands === true && isCommand(message)) || (options.sources !== undefined && !acceptsMessage({ sources: options.sources }, message));
   return function feedReducer(state: FeedItem[], action: FeedAction): FeedItem[] {
     switch (action.type) {
       case "add":
@@ -272,6 +349,6 @@ export function chatMotion(options: Pick<OverlayOptions, "enterEffect" | "exitEf
     enter: spec(options.enterEffect),
     exit: spec(options.exitEffect),
     // 0,4 em vertical (ancienne animation CSS), 1,5 em horizontal : lisible sans balayer l'écran.
-    distance: (effect) => (effect === "slideLeft" || effect === "slideRight" ? "1.5em" : "0.4em"),
+    distance: (effect) => (effect === "slideLeft" || effect === "slideRight" || effect === "elastic" ? "1.5em" : effect === "drop" || effect === "fall" ? "0.8em" : "0.4em"),
   };
 }

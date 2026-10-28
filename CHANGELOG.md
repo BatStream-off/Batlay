@@ -3,6 +3,109 @@
 Toutes les évolutions notables de Batlay. Le numéro de version suit `package.json`
 (vérifié par `tests/version.test.ts`).
 
+## 0.4.0
+
+### Ajouté : overlays personnalisés
+- Nouvelle section **Overlays → Personnalisés**, avec **Créer un overlay** et 9 modèles prêts à modifier :
+  - Toile vide (1920 × 1080) ;
+  - Ça commence bientôt, Pause, Fin du live ;
+  - Cadre webcam ;
+  - Bandeau réseaux ;
+  - Écran vertical TikTok (1080 × 1920, textes hors des zones de l'interface TikTok) ;
+  - Logo ou image.
+- **Toujours affichés**, même quand aucune musique ne joue, contrairement aux overlays musicaux qui se masquent. Un texte qui ne contient que des variables de musique (« ♪ {title} — {artist} ») disparaît proprement quand rien ne joue.
+- **Images** : nouveau composant **Image** (PNG, JPG, GIF animé, WebP, 8 Mo max). Trois façons d'en ajouter :
+  - « Image » dans la palette ;
+  - **glisser un fichier sur le canvas** : l'image est posée là où on la lâche ;
+  - **coller** une image (Ctrl+V), par exemple une capture d'écran.
+
+  L'image garde ses proportions. Réglage « Image entière / Remplir le cadre », « Changer l'image ». Dans les modèles, les emplacements d'image sont marqués en pointillés dans l'éditeur, jamais dans OBS.
+- **Horloge** : nouveau composant (heure, heure et secondes, date, date et heure), mis à jour en direct, avec les réglages de texte habituels.
+- **Compte à rebours** : nouveau composant (« 04:59 »), lancé quand la source s'affiche dans OBS. Durée réglable en minutes et secondes, texte de fin (« C'est parti ! »).
+- **Infos du live dans les textes** : nouvelles variables `{lastFollower}`, `{lastSub}`, `{lastGift}`, `{followers}`, `{subs}`, `{gifts}`, `{messages}`. Ce sont les totaux Twitch + TikTok depuis l'ouverture de Batlay ou la remise à zéro (page Live).
+  - Envoyées en direct aux pages d'overlay.
+  - Un nouveau « dernier follower » rejoue l'animation du texte.
+  - Un texte dont les variables sont encore vides (aucun follower) reste masqué.
+  - Les alertes de test ne comptent pas.
+- **Objectif** : nouveau composant barre de progression (followers, abonnés, cadeaux ou messages), avec objectif, libellé, « 12 / 20 » et couleurs réglables. La barre avance en douceur.
+- **Mes images** : sous la palette de l'éditeur, les images déjà importées (overlays et alertes) se réutilisent d'un clic.
+- Modèles mis à jour :
+  - compte à rebours dans « Ça commence bientôt » ;
+  - dernier follower dans « Pause » ;
+  - dernier abonné dans « Fin du live » ;
+  - nouveau modèle **Objectif du live**.
+- Polices de l'éditeur : **13 de plus** (Space Grotesk, JetBrains Mono, Bahnschrift, Comic Sans MS, Segoe Print, Ink Free, Gabriola, Palatino…). Les polices de Batlay sont maintenant chargées dans la page OBS.
+- Dans un overlay personnalisé, la palette propose d'abord Image, Texte, Forme et Horloge.
+
+### Ajouté : TikTok en « mode navigateur » (nouvelle méthode par défaut)
+- Batlay ouvre la page de votre live TikTok dans une **fenêtre invisible** (jamais affichée, absente de la barre des tâches, son coupé, sans vidéo ni images) et lit les événements que TikTok envoie à cette page : follows, Super Fans, cadeaux, commentaires, fin du live.
+- **Aucun service tiers** : plus besoin d'Euler Stream. La page utilise la session TikTok connectée dans Batlay, donc ça marche aussi pour un **compte privé** (connectez votre compte dans la carte TikTok).
+- Nouveau choix **Méthode** dans la carte TikTok : « Navigateur intégré (recommandé) » ou « Bibliothèque (Euler) », l'ancienne méthode. Changer de méthode rebranche aussitôt.
+- Si la page s'ouvre sans flux, Batlay réessaie en alternant avec et sans vidéo. La fenêtre invisible est fermée à la déconnexion, à la fin du live et en quittant Batlay.
+- Le diagnostic indique la méthode utilisée.
+
+### Ajouté : diagnostic TikTok
+- Bouton **Diagnostic** dans la carte TikTok (page Alertes). Il vérifie chaque étape sans ouvrir de connexion au live :
+  - bibliothèque installée (et sa version) ;
+  - pseudo et compte ;
+  - session TikTok ;
+  - live trouvé, caché ou absent ;
+  - dernier état de la connexion.
+
+  Chaque étape a un résultat clair (OK, attention, échec) et un rapport texte à copier pour demander de l'aide.
+
+### Sécurité
+- Les images sont vérifiées par leur contenu à l'import, stockées dans le dossier de Batlay sous un nom calculé, et servies seulement par le serveur local. Un overlay importé (.json) qui référence une image au nom invalide est refusé.
+
+## 0.3.9
+
+### Ajouté : fenêtre « Live »
+- Nouvelle page **Live** (barre latérale, sous « Vue d'ensemble ») : tout le live au même endroit.
+  - **Chats Twitch et TikTok** : fusionnés (par ordre d'arrivée, avec un repère de couleur), **côte à côte**, ou un seul. La liste suit les nouveaux messages ; si vous remontez lire, un bouton « N nouveaux messages » vous ramène en bas. Émotes Twitch affichées, messages supprimés par la modération retirés.
+  - **Compteurs du live** : nouveaux followers, abonnés (Twitch : abonnements et réabonnements ; TikTok : Super Fans), cadeaux (abonnements offerts sur Twitch, cadeaux TikTok en quantité), messages. Total et détail Twitch / TikTok, depuis l'ouverture de Batlay ou depuis **Remettre à zéro**. Les tests ne sont pas comptés.
+  - **Journal d'activité lisible**, du plus récent au plus ancien. Pour chaque alerte : type, plateforme, pseudo, résumé (« 5 × Rose », « 14 mois · « message » »…) et **ce qui lui est arrivé**, en clair : « Affichée », « Non affichée : ce type d'alerte ou cette plateforme est désactivé », « Non affichée : aucune page d'alertes ouverte dans le logiciel de streaming », « Non affichée : trop d'alertes en peu de temps ». Bouton **Rejouer**. Les connexions y sont aussi notées : chat Twitch connecté ou coupé, live TikTok branché, en attente, caché, terminé. Filtres : Tout / Alertes / Connexions, et par plateforme.
+- **Ouvrir dans une fenêtre** : la page Live dans une fenêtre séparée (pour un second écran), avec **Toujours visible** pour la garder au-dessus du jeu ou d'OBS. Mêmes protections que la fenêtre principale ; elle se ferme avec Batlay.
+
+### Interface (passe visuelle)
+- **Vue d'ensemble** refaite :
+  - bandeau « Le live en chiffres » (followers, abonnés, cadeaux, messages, dont le chiffre rebondit à chaque nouvel événement) ;
+  - trois cartes Musique, Chat Twitch et **TikTok** (compte, état du live, session) ;
+  - **Dernières alertes** avec leur issue ;
+  - liste « À régler » qui inclut maintenant TikTok (live caché, erreur) ;
+  - bouton **Fenêtre Live** et accueil personnalisé (« Bonsoir Adil ! »).
+- **Barre latérale** : étiquette **LIVE** animée sur « Live » quand le live TikTok est branché, et nouvelle ligne d'état TikTok en bas (en live, en attente, caché, erreur), qui mène à la carte TikTok.
+- **Paramètres → Apparence** :
+  - **Densité** Confortable / Compacte (toute l'interface un peu plus petite pour en voir plus) ;
+  - **Animations de l'interface** Normales / Réduites (n'agit pas sur les overlays ; la préférence de Windows reste respectée) ;
+  - **8 couleurs d'accent** en un clic, en plus de la pipette.
+- **Animations de l'interface** : nouvelles lignes du journal et des chats qui glissent en place, compteurs qui rebondissent, halo pulsé sur les étiquettes « Live ». Tout est coupé en mouvement réduit.
+- **Cohérence** : largeurs de page harmonisées (pages de suivi larges, pages de réglages étroites), titres alignés sur le menu (« Chat Twitch », « Lecture en cours »), couleurs passées par le thème (clair et sombre).
+
+- **Palette de commandes** (**Ctrl+K**, ou « Rechercher… » en haut de la barre latérale) :
+  - aller à n'importe quelle page ;
+  - copier l'URL OBS d'un overlay, du chat ou des alertes ;
+  - tester une alerte ou passer celle en cours ;
+  - ouvrir la fenêtre Live, changer de thème ou de densité.
+
+  Recherche sans accents ni majuscules ; ↑ ↓ pour choisir, Entrée pour lancer.
+- **Barre latérale réductible sur toutes les pages** (et plus seulement dans l'éditeur), choix mémorisé.
+- **Interrupteurs** : les cases à cocher des réglages (alertes, éditeur, chat) deviennent des interrupteurs, les mêmes que dans les Paramètres.
+- **Page Alertes** :
+  - types d'alerte présentés en onglets avec icône et pastille « activée » (au lieu d'un sélecteur serré) ;
+  - carte Twitch avec la chaîne concernée et des boutons pour essayer chaque alerte Twitch.
+
+### Ajouté : chat
+- **Chat TikTok** : les commentaires du live TikTok (branché dans Alertes → TikTok) arrivent dans la fenêtre Live **et dans l'overlay du chat**.
+- Overlay du chat : réglage **Plateformes** (Twitch + TikTok, Twitch seulement, TikTok seulement ; paramètre d'URL `src=`) et **repère Twitch / TikTok** devant le pseudo (`pico=1`). Par défaut, les deux plateformes sont affichées sans repère : une source Twitch existante ne change pas tant que TikTok n'est pas branché.
+- **19 polices de plus** pour le chat (23 en tout) : Inter, Space Grotesk et JetBrains Mono (embarquées dans la page), et des polices livrées avec Windows : Verdana, Trebuchet MS, Tahoma, Bahnschrift, Calibri, Candara, Franklin Gothic, Impact, Comic Sans MS, Segoe Print, Ink Free, Gabriola, Times New Roman, Palatino, Cascadia Code, Courier New. Le paramètre `font=` accepte aussi les majuscules.
+
+### Ajouté : animations
+- Moteur commun : **6 nouvelles entrées** (Mise au point, Bascule 3D, Balancement, Chute avec rebond, Élastique, Arrivée de loin) et **3 nouvelles sorties** (Bascule 3D, Chute, Éclatement). Elles sont proposées automatiquement partout : chat, alertes, composants des overlays. Elles n'animent que `opacity`, `transform` et, pour la mise au point, `filter` (plafonné à 8 px).
+
+### Technique
+- `electron/shared/live.ts` (pur) et `electron/services/live/live-hub.ts` (mémoire de la session, sans écriture sur disque). `AlertHub` signale chaque résultat (`onResult`) et sait rejouer une alerte (`replay`). Le service Twitch recopie les messages des overlays (`onOverlayMessage`) et accepte les messages TikTok (`injectChat`). `ChatMessage.platform` est facultatif (absent = Twitch).
+- Tests : `tests/live.test.ts` (16), polices et plateformes du chat, nouveaux effets.
+
 ## 0.3.8
 
 ### Ajouté (TikTok directement dans Batlay)
@@ -15,6 +118,12 @@ Toutes les évolutions notables de Batlay. Le numéro de version suit `package.j
 ### Fonctionnement et limites
 - TikTok ne propose pas d'API officielle : Batlay utilise la bibliothèque communautaire **`tiktok-live-connector`** (non officielle, nouvelle dépendance). Elle fait valider la connexion par un **service tiers, Euler Stream**, qui reçoit le pseudo (jamais de mot de passe ni de session). Lecture seule : Batlay n'écrit rien dans le live. Peut cesser de fonctionner si TikTok change son site ; non autorisé par TikTok.
 - Nouveaux essais espacés (hors live 90 s, service saturé 5 min, après la fin du live 60 s), car la version gratuite du service limite les connexions.
+- **Compte vérifié même hors live** : à la connexion, Batlay vérifie le pseudo avec l'oEmbed officiel de TikTok (profil public, sans clé) et affiche le nom du compte avec « Compte trouvé » et « Hors live ». Un pseudo inexistant est signalé tout de suite. Si la vérification est impossible (réseau), Batlay continue quand même.
+- **Recherche du live par Batlay** : l'identifiant du live est cherché par Chromium (page du live, puis API « api-live »), comme un navigateur, avec des cookies TikTok séparés du reste de Batlay. La bibliothèque le reçoit directement : elle ne fait plus elle-même ces requêtes depuis Node, où TikTok les bloquait (« Failed to retrieve Room ID from all sources » alors que le live était lancé). Hors live constaté : aucune requête au service de signature.
+- **Fenêtre Chromium invisible** : la recherche du live ouvre d'abord la page du live dans une fenêtre cachée (bac à sable, sans Node ni preload, son coupé, images et vidéo bloquées, aucune permission, navigation limitée à tiktok.com, fermée après 20 s au plus) et lit les informations comme le site lui-même. Un « en live » trouvé par une méthode l'emporte sur un « terminé » d'une autre. Le nom du compte est repris de la réponse. Chaque étape (statut, identifiant du live, captcha…) apparaît dans « Détails techniques ».
+- **Compte privé** : TikTok cache l'identifiant du live d'un compte privé aux visiteurs non connectés (statut « en live » mais identifiant vide, constaté sur un vrai live). Batlay ne le prend plus pour « pas en live » : il affiche « Live caché (compte privé) » et explique comment passer le compte en public.
+- **Connexion facultative du compte TikTok** (pour un compte privé) : bouton « Se connecter à TikTok ». Il ouvre la page de connexion officielle de TikTok dans une fenêtre de Batlay (bac à sable, sans preload, https uniquement), où le code QR de l'appli TikTok marche aussi. Batlay ne voit jamais le mot de passe et ne lit que la présence du cookie de session, jamais sa valeur. La session reste dans une partition dédiée sur ce PC et sert uniquement aux requêtes vers tiktok.com : elle n'est jamais envoyée au service de signature tiers. « Se déconnecter de TikTok » efface toute cette partition. Dès la connexion, Batlay relance la recherche du live.
+- « Live introuvable » (aucun identifiant de live, cas normal hors live) n'est plus pris pour un compte inexistant : Batlay attend et réessaie. Bouton **Réessayer maintenant**, et **Détails techniques** (message brut de la bibliothèque, copiable) en cas d'échec.
 - Bibliothèque chargée à la demande : si elle manque ou plante, Batlay démarre quand même et l'indique dans la carte.
 - `package.json` → `overrides` : `got` 14 sous `tiktok-live-connector` (`got` 15 exige Node 22, Electron 31 embarque Node 20).
 - **Non testé sur un vrai live TikTok** (inaccessible depuis l'environnement de développement) : conversion des événements écrite d'après la documentation et le code source de la bibliothèque, testée avec de fausses données.

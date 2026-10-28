@@ -81,7 +81,11 @@ describe("options de personnalisation", () => {
     });
   });
   it("une police inconnue ou une opacité hors bornes retombe sur une valeur sûre", () => {
-    expect(parseOverlayOptions("?font=comic&opacity=900")).toMatchObject({ font: "segoe", bgOpacity: 100 });
+    expect(parseOverlayOptions("?font=papyrus&opacity=900")).toMatchObject({ font: "segoe", bgOpacity: 100 });
+    // Nouvelles polices (0.3.9), majuscules indifférentes.
+    expect(parseOverlayOptions("?font=comic").font).toBe("comic");
+    expect(parseOverlayOptions("?font=segoeprint").font).toBe("segoePrint");
+    expect(parseOverlayOptions(buildOverlaySearch({ ...DEFAULT_OPTIONS, font: "inkfree" })).font).toBe("inkfree");
     expect(parseOverlayOptions("?font=__proto__")).toMatchObject({ font: "segoe" });
   });
   it("buildOverlaySearch et parseOverlayOptions sont inverses l'un de l'autre", () => {
